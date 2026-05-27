@@ -1480,18 +1480,49 @@ class StoryPhoneApp {
 
 function bootStoryPhone() {
     if (globalThis.__STStoryPhoneApp) return;
+    if (!globalThis.SillyTavern?.getContext) {
+        setTimeout(bootStoryPhone, 500);
+        return;
+    }
     globalThis.__STStoryPhoneApp = new StoryPhoneApp();
     globalThis.__STStoryPhoneApp.start();
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootStoryPhone, { once: true });
-} else {
-    bootStoryPhone();
+function scheduleStoryPhoneBoot() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootStoryPhone, { once: true });
+    } else {
+        setTimeout(bootStoryPhone, 0);
+    }
+
+    const context = getContext();
+    const events = context.eventSource;
+    const types = context.event_types || {};
+    [types.APP_INITIALIZED, types.APP_READY]
+        .filter(Boolean)
+        .forEach((type) => events?.on?.(type, bootStoryPhone));
+
+    setTimeout(bootStoryPhone, 2000);
+}
+
+globalThis.STStoryPhoneDebug = {
+    boot: bootStoryPhone,
+    resetUi: () => {
+        document.getElementById('st-story-phone')?.remove();
+        globalThis.__STStoryPhoneApp = null;
+        bootStoryPhone();
+    },
+    state: () => globalThis.__STStoryPhoneApp?.state?.value || null,
+};
+
+scheduleStoryPhoneBoot();
+
+export function onActivate() {
+    scheduleStoryPhoneBoot();
 }
 
 export function onEnable() {
-    bootStoryPhone();
+    scheduleStoryPhoneBoot();
 }
 
 export async function onClean() {
