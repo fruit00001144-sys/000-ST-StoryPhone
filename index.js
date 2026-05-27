@@ -24,22 +24,69 @@
         button.title = '打开 ST-StoryPhone';
         button.setAttribute('aria-label', '打开 ST-StoryPhone');
         button.style.position = 'fixed';
-        button.style.right = '18px';
-        button.style.bottom = '84px';
-        button.style.zIndex = '99999';
-        button.style.width = '72px';
-        button.style.height = '72px';
+        button.style.left = '14px';
+        button.style.top = '92px';
+        button.style.zIndex = '2147483647';
+        button.style.width = '96px';
+        button.style.height = '54px';
         button.style.border = '4px solid #fff7b8';
-        button.style.borderRadius = '24px';
+        button.style.borderRadius = '18px';
         button.style.background = 'linear-gradient(145deg, #bfefff, #ffd3e5)';
         button.style.color = '#24314f';
         button.style.fontWeight = '900';
+        button.style.fontSize = '15px';
         button.style.boxShadow = '0 12px 28px rgba(54, 80, 120, 0.26)';
         button.style.cursor = 'pointer';
         button.style.fontFamily = 'Verdana, sans-serif';
+        button.style.pointerEvents = 'auto';
 
         document.body.appendChild(button);
         return button;
+    }
+
+    function makeFallbackPhone() {
+        var old = document.getElementById('st-story-phone-fallback');
+        if (old) {
+            old.style.display = old.style.display === 'none' ? 'block' : 'none';
+            return old;
+        }
+
+        var panel = document.createElement('section');
+        panel.id = 'st-story-phone-fallback';
+        panel.style.position = 'fixed';
+        panel.style.left = '12px';
+        panel.style.top = '154px';
+        panel.style.zIndex = '2147483647';
+        panel.style.width = 'min(340px, calc(100vw - 24px))';
+        panel.style.maxHeight = 'calc(100vh - 190px)';
+        panel.style.overflow = 'auto';
+        panel.style.border = '4px solid #fff7b8';
+        panel.style.borderRadius = '28px';
+        panel.style.padding = '14px';
+        panel.style.background = 'linear-gradient(145deg, #bfefff, #ffd3e5 55%, #fff9df)';
+        panel.style.color = '#24314f';
+        panel.style.boxShadow = '0 18px 44px rgba(54,80,120,.32)';
+        panel.style.fontFamily = 'Verdana, sans-serif';
+        panel.innerHTML = [
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">',
+            '<strong>ST-StoryPhone</strong>',
+            '<button id="st-story-phone-fallback-close" type="button">关闭</button>',
+            '</div>',
+            '<p style="font-weight:800;">小手机入口已加载。完整手机主体会继续尝试启动。</p>',
+            '<button id="st-story-phone-fallback-load" type="button">打开完整手机</button>',
+            '<button id="st-story-phone-fallback-bubble" type="button">重新显示气泡</button>',
+            '<p style="font-size:12px;">如果这里能显示，说明扩展入口没问题，之前只是气泡被遮挡或完整主体加载失败。</p>',
+        ].join('');
+        document.body.appendChild(panel);
+        document.getElementById('st-story-phone-fallback-close').addEventListener('click', function () {
+            panel.style.display = 'none';
+        });
+        document.getElementById('st-story-phone-fallback-load').addEventListener('click', loadFullApp);
+        document.getElementById('st-story-phone-fallback-bubble').addEventListener('click', function () {
+            makeBubble();
+            showToast('Phone 气泡已放到左上角');
+        });
+        return panel;
     }
 
     function mountDiagnosticsPanel() {
@@ -57,14 +104,15 @@
         panel.style.background = '#fff9df';
         panel.style.color = '#24314f';
         panel.style.fontWeight = '800';
-        panel.innerHTML = 'ST-StoryPhone launcher loaded. 如果主页面没有 Phone 气泡，请点这里：<button id="st-story-phone-force-bubble" type="button">显示 Phone 气泡</button>';
+        panel.innerHTML = 'ST-StoryPhone launcher loaded. 如果主页面没有 Phone 气泡，请点这里：<button id="st-story-phone-force-bubble" type="button">显示/打开 Phone</button>';
         host.prepend(panel);
 
         var force = document.getElementById('st-story-phone-force-bubble');
         if (force) {
             force.addEventListener('click', function () {
                 makeBubble();
-                showToast('Phone 气泡已强制显示');
+                makeFallbackPhone();
+                showToast('Phone 已放到左上角');
             });
         }
     }
@@ -96,6 +144,8 @@
         if (window.__STStoryPhoneAppLoaded) {
             if (window.STStoryPhoneDebug && window.STStoryPhoneDebug.resetUi) {
                 window.STStoryPhoneDebug.resetUi();
+            } else {
+                makeFallbackPhone();
             }
             return;
         }
@@ -125,8 +175,9 @@
         window.STStoryPhoneLauncher = {
             load: loadFullApp,
             bubble: makeBubble,
+            fallback: makeFallbackPhone,
             diagnostics: mountDiagnosticsPanel,
-            version: '0.1.5',
+            version: '0.1.6',
         };
         console.info(EXTENSION_ID + ' launcher loaded');
     });
