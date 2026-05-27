@@ -177,11 +177,11 @@
         panel.id = 'st-story-phone-fallback';
         panel.style.position = 'fixed';
         panel.style.left = '12px';
-        panel.style.top = '72px';
+        panel.style.top = '96px';
         panel.style.transform = 'none';
         panel.style.zIndex = '2147483647';
         panel.style.width = 'min(360px, calc(100vw - 28px))';
-        panel.style.height = 'min(690px, calc(100vh - 86px))';
+        panel.style.height = 'min(690px, calc(100vh - 132px))';
         panel.style.overflow = 'hidden';
         panel.style.border = '5px solid #fff2a8';
         panel.style.borderRadius = '38px';
@@ -192,7 +192,7 @@
         panel.style.fontFamily = 'Verdana, sans-serif';
         panel.innerHTML = [
             '<div id="st-story-phone-dragbar" style="height:42px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 16px;font-size:11px;font-weight:900;letter-spacing:.08em;">',
-            '<span>STORY 5G</span>',
+            '<span>拖动这里</span>',
             '<span style="width:74px;height:22px;border-radius:999px;background:rgba(36,49,79,.86);box-shadow:inset 16px 0 0 rgba(255,255,255,.16);"></span>',
             '<button id="st-story-phone-fallback-close" type="button" style="justify-self:end;width:30px;height:24px;border:2px solid #24314f;border-radius:8px;background:#fff9df;font-weight:900;">×</button>',
             '</div>',
@@ -210,7 +210,7 @@
             appButtonHtml('备忘录', '📝'),
             appButtonHtml('目标手机', '📱'),
             '</div>',
-            '<div id="st-story-phone-fallback-view" style="margin-top:14px;border:2px solid rgba(36,49,79,.14);border-radius:18px;background:rgba(255,255,255,.72);padding:12px;font-size:13px;line-height:1.5;">点一个应用开始。后台生成接口未接入时，不会把内容写入主聊天。</div>',
+            '<div id="st-story-phone-fallback-view" style="margin-top:14px;border:2px solid rgba(36,49,79,.14);border-radius:18px;background:rgba(255,255,255,.72);padding:0;font-size:13px;line-height:1.5;overflow:hidden;">点一个应用开始。后台生成接口未接入时，不会把内容写入主聊天。</div>',
             '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">',
             '<button id="st-story-phone-fallback-load" type="button" style="border:2px solid #24314f;border-radius:10px;background:#fff9df;font-weight:900;box-shadow:3px 3px 0 #24314f;padding:7px 10px;">重试完整手机</button>',
             '<button id="st-story-phone-fallback-bubble" type="button" style="border:2px solid #24314f;border-radius:10px;background:#fff;font-weight:900;box-shadow:2px 2px 0 rgba(36,49,79,.6);padding:7px 10px;">显示气泡</button>',
@@ -243,7 +243,7 @@
     function renderFallbackApp(label) {
         var view = document.getElementById('st-story-phone-fallback-view');
         if (!view) return;
-        if (label === '微信' || label === '朋友圈') return renderFallbackWechat(label === '朋友圈' ? 'moments' : 'chat');
+        if (label === '微信' || label === '朋友圈') return renderFallbackWechat(label === '朋友圈' ? 'moments' : 'list');
         if (label === '论坛') return renderFallbackForum();
         if (label === '日历') return renderSimpleApp('📅 日历', '今天：剧情时间同步主线。<br>未来暗线：等待主剧情推进，不提前泄露。');
         if (label === '备忘录') return renderMemoApp();
@@ -253,16 +253,31 @@
     function renderFallbackWechat(tab) {
         var view = document.getElementById('st-story-phone-fallback-view');
         var chat = JSON.parse(localStorage.getItem('st_story_phone_demo_chat') || '["今天主线发生的事不会自动泄露给其他NPC。"]');
-        var moments = JSON.parse(localStorage.getItem('st_story_phone_demo_moments') || '[{"author":"同学A","text":"今天走廊那边好像有点热闹。","likes":0,"comments":[]},{"author":"社团号","text":"下午活动室开放，借器材记得登记。","likes":1,"comments":["收到"]}]');
+        var moments = JSON.parse(localStorage.getItem('st_story_phone_demo_moments') || '[{"author":"同学A","avatar":"🌿","text":"今天走廊那边好像有点热闹。","liked":false,"comments":[]},{"author":"社团号","avatar":"📷","text":"下午活动室开放，借器材记得登记。","liked":true,"comments":["收到"]}]');
+        var header = '<div style="height:46px;background:#ededed;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:18px;font-weight:700;"><button data-stp-wx-tab="list" style="border:0;background:transparent;font-size:20px;">‹</button><span>微信</span><span>＋</span></div>';
+        if (tab === 'list') {
+            var rows = [
+                ['🐼', '目标角色', '刚刚的消息只在手机内。', '现在'],
+                ['🧑‍🎓', '同学A', '你看到论坛那个帖子了吗？', '5月16日'],
+                ['📷', '社团号', '活动室开放通知', '5月15日'],
+                ['🫧', '朋友圈', '发现页入口', ''],
+            ];
+            view.innerHTML = header + rows.map(function (r) {
+                var target = r[1] === '朋友圈' ? 'moments' : 'chat';
+                return '<button data-stp-wx-tab="' + target + '" style="width:100%;display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;border:0;border-bottom:1px solid #eee;background:#fff;padding:10px;text-align:left;color:#111;"><span style="width:44px;height:44px;border-radius:8px;background:#f4f4f4;display:grid;place-items:center;font-size:24px;">' + r[0] + '</span><span><strong style="display:block;font-size:16px;">' + r[1] + '</strong><small style="color:#999;">' + r[2] + '</small></span><small style="color:#aaa;">' + r[3] + '</small></button>';
+            }).join('');
+            bindWechatTabs();
+            return;
+        }
         if (tab === 'moments') {
-            view.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:10px;"><button data-stp-wx-tab="chat">💬 聊天</button><button data-stp-wx-tab="moments">🫧 朋友圈</button></div>' +
+            view.innerHTML = '<div style="height:46px;background:#ededed;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:18px;font-weight:700;"><button data-stp-wx-tab="list" style="border:0;background:transparent;font-size:20px;">‹</button><span>朋友圈</span><span>📷</span></div>' +
                 moments.map(function (m, i) {
-                    return '<article style="border-bottom:1px dashed rgba(36,49,79,.2);padding:10px 0;"><strong>' + m.author + '</strong><p>' + m.text + '</p><small>❤️ ' + m.likes + '　评论 ' + m.comments.length + '</small><div>' + m.comments.map(function (c) { return '<p style="margin:4px 0;background:#f8fdff;border-radius:8px;padding:4px;">' + c + '</p>'; }).join('') + '</div><button data-like="' + i + '">点赞</button><button data-comment="' + i + '">评论</button></article>';
+                    return '<article style="display:grid;grid-template-columns:44px 1fr;gap:10px;border-bottom:1px solid #eee;background:#fff;padding:12px;"><div style="width:40px;height:40px;border-radius:6px;background:#f4f4f4;display:grid;place-items:center;font-size:22px;">' + (m.avatar || '👤') + '</div><div><strong style="color:#596b8d;font-size:15px;">' + m.author + '</strong><p style="margin:5px 0 8px;color:#111;font-size:15px;">' + m.text + '</p><small style="color:#aaa;">刚刚</small><button data-like="' + i + '" style="float:right;border:0;background:#f6f6f6;border-radius:4px;padding:2px 8px;">' + (m.liked ? '已赞' : '♡') + '</button><button data-comment="' + i + '" style="float:right;border:0;background:#f6f6f6;border-radius:4px;padding:2px 8px;margin-right:4px;">评论</button><div style="clear:both;margin-top:8px;background:#f3f3f3;border-radius:4px;padding:6px;color:#596b8d;">' + (m.liked ? '<div>我 觉得很赞</div>' : '') + m.comments.map(function (c) { return '<div><b>我：</b>' + c + '</div>'; }).join('') + '</div></div></article>';
                 }).join('');
             bindWechatTabs();
             Array.prototype.forEach.call(view.querySelectorAll('[data-like]'), function (button) {
                 button.addEventListener('click', function () {
-                    moments[Number(button.dataset.like)].likes += 1;
+                    moments[Number(button.dataset.like)].liked = !moments[Number(button.dataset.like)].liked;
                     localStorage.setItem('st_story_phone_demo_moments', JSON.stringify(moments));
                     renderFallbackWechat('moments');
                 });
@@ -278,9 +293,9 @@
             });
             return;
         }
-        view.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:10px;"><button data-stp-wx-tab="chat">💬 聊天</button><button data-stp-wx-tab="moments">🫧 朋友圈</button></div><div style="display:flex;flex-direction:column;gap:7px;max-height:210px;overflow:auto;">' +
-            chat.map(function (m, i) { return '<div style="align-self:' + (i % 2 ? 'flex-end' : 'flex-start') + ';max-width:82%;background:' + (i % 2 ? '#bfefff' : '#fff') + ';border:1px solid rgba(36,49,79,.12);border-radius:14px;padding:8px 10px;">' + m + '</div>'; }).join('') +
-            '</div><form id="stp-demo-chat-form" style="display:flex;gap:6px;margin-top:10px;"><input name="msg" placeholder="手机内消息..." style="flex:1;border:2px solid rgba(36,49,79,.14);border-radius:12px;padding:8px;"><button>发送</button></form>';
+        view.innerHTML = '<div style="height:46px;background:#ededed;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:16px;font-weight:700;"><button data-stp-wx-tab="list" style="border:0;background:transparent;font-size:20px;">‹</button><span>目标角色</span><span>⋯</span></div><div style="display:flex;flex-direction:column;gap:10px;height:260px;overflow:auto;background:#ededed;padding:12px;">' +
+            chat.map(function (m, i) { return '<div style="align-self:' + (i % 2 ? 'flex-start' : 'flex-end') + ';display:flex;gap:8px;max-width:90%;"><span style="order:' + (i % 2 ? 0 : 2) + ';width:30px;height:30px;border-radius:4px;background:#fff;display:grid;place-items:center;">' + (i % 2 ? '👤' : '我') + '</span><span style="background:' + (i % 2 ? '#fff' : '#95ec69') + ';border-radius:6px;padding:8px 10px;color:#111;text-align:left;">' + m + '</span></div>'; }).join('') +
+            '</div><form id="stp-demo-chat-form" style="display:flex;gap:8px;background:#f7f7f7;padding:8px;"><button type="button">🎙</button><input name="msg" placeholder="" style="flex:1;border:0;border-radius:4px;padding:8px;background:#fff;"><button type="button">😊</button><button>＋</button></form>';
         bindWechatTabs();
         document.getElementById('stp-demo-chat-form').addEventListener('submit', function (event) {
             event.preventDefault();
@@ -301,9 +316,14 @@
     function renderFallbackForum() {
         var view = document.getElementById('st-story-phone-fallback-view');
         var posts = JSON.parse(localStorage.getItem('st_story_phone_demo_forum') || '[{"title":"今天教学楼侧门是不是临时锁了？","body":"有人知道原因吗？别乱传，可能只是后勤维修。","floors":["1L：我也看到了。","2L：别上升，等通知吧。"]}]');
-        view.innerHTML = '<strong>📌 论坛</strong><p style="margin:.4em 0;">像贴吧一样按帖子和楼层浏览。</p>' + posts.map(function (p, i) {
-            return '<article style="border:2px solid rgba(36,49,79,.14);border-radius:14px;padding:10px;margin:8px 0;background:#fff;"><strong>' + p.title + '</strong><p>' + p.body + '</p>' + p.floors.map(function (f) { return '<div style="background:#f8fdff;margin:5px 0;padding:6px;border-radius:8px;">' + f + '</div>'; }).join('') + '<button data-floor="' + i + '">回复楼层</button></article>';
+        view.innerHTML = '<div style="height:46px;background:#f7f7f7;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-weight:800;"><span>‹</span><span>论坛</span><button id="stp-forum-refresh">刷新</button></div>' + posts.map(function (p, i) {
+            return '<article style="background:#fff;border-bottom:8px solid #f2f3f5;padding:12px;"><strong style="font-size:16px;color:#1f3f73;">' + p.title + '</strong><p style="color:#222;">' + p.body + '</p>' + p.floors.map(function (f) { return '<div style="border-top:1px solid #eee;padding:8px 0;color:#333;">' + f + '</div>'; }).join('') + '<button data-floor="' + i + '">回复楼层</button></article>';
         }).join('');
+        document.getElementById('stp-forum-refresh').addEventListener('click', function () {
+            posts.unshift({ title: '新的讨论串正在生成…', body: getApiConfigured() ? '已请求扩展 API。' : '后台生成接口未接入，显示本地占位。', floors: ['1L：先观察，不要默认全员知道。'] });
+            localStorage.setItem('st_story_phone_demo_forum', JSON.stringify(posts));
+            renderFallbackForum();
+        });
         Array.prototype.forEach.call(view.querySelectorAll('[data-floor]'), function (button) {
             button.addEventListener('click', function () {
                 var text = prompt('回复内容（只在论坛内）：');
@@ -319,7 +339,7 @@
     function renderMemoApp() {
         var view = document.getElementById('st-story-phone-fallback-view');
         var memos = JSON.parse(localStorage.getItem('st_story_phone_demo_memos') || '[]');
-        view.innerHTML = '<strong>📝 备忘录</strong><form id="stp-demo-memo-form" style="display:flex;gap:6px;margin:8px 0;"><input name="memo" placeholder="保存线索..." style="flex:1;border:2px solid rgba(36,49,79,.14);border-radius:12px;padding:8px;"><button>保存</button></form>' + memos.map(function (m) { return '<p style="background:#fff;border-radius:10px;padding:8px;">' + m + '</p>'; }).join('');
+        view.innerHTML = '<div style="background:#f7f2df;min-height:320px;padding:14px;color:#111;"><div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:22px;">备忘录</strong><span>📝</span></div><form id="stp-demo-memo-form" style="display:flex;gap:6px;margin:12px 0;"><input name="memo" placeholder="保存线索..." style="flex:1;border:0;border-radius:10px;padding:10px;background:#fffdf5;"><button style="border:0;background:#ffd84d;border-radius:10px;padding:0 12px;">保存</button></form>' + memos.map(function (m) { return '<p style="background:#fffdf5;border-radius:12px;padding:10px;box-shadow:0 1px 0 rgba(0,0,0,.06);">' + m + '</p>'; }).join('') + '</div>';
         document.getElementById('stp-demo-memo-form').addEventListener('submit', function (event) {
             event.preventDefault();
             var text = event.target.memo.value.trim();
@@ -333,6 +353,10 @@
     function renderSimpleApp(title, body) {
         var view = document.getElementById('st-story-phone-fallback-view');
         if (view) view.innerHTML = '<strong>' + title + '</strong><p>' + body + '</p>';
+    }
+
+    function getApiConfigured() {
+        return Boolean(localStorage.getItem('st_story_phone_api_endpoint'));
     }
 
     function openPhone() {
@@ -355,7 +379,16 @@
         panel.style.background = '#fff9df';
         panel.style.color = '#24314f';
         panel.style.fontWeight = '800';
-        panel.innerHTML = 'ST-StoryPhone launcher loaded. 如果主页面没有 Phone 气泡，请点这里：<button id="st-story-phone-force-bubble" type="button">显示/打开 Phone</button>';
+        panel.innerHTML = [
+            'ST-StoryPhone launcher loaded. 如果主页面没有 Phone 气泡，请点这里：',
+            '<button id="st-story-phone-force-bubble" type="button">显示/打开 Phone</button>',
+            '<details style="margin-top:8px;"><summary>StoryPhone API 设置</summary>',
+            '<label style="display:block;margin-top:6px;">后台生成接口 Endpoint（可选，默认关闭）</label>',
+            '<input id="st-story-phone-api-endpoint" placeholder="例如 http://127.0.0.1:5100/storyphone" style="width:100%;box-sizing:border-box;border:2px solid #71cfff;border-radius:8px;padding:6px;">',
+            '<button id="st-story-phone-api-save" type="button" style="margin-top:6px;">保存 API 设置</button>',
+            '<p style="font-size:12px;margin:.4em 0;">不填写时只用本地手机交互；填写后才会把可见上下文发送到你配置的接口。</p>',
+            '</details>',
+        ].join('');
         host.prepend(panel);
 
         var force = document.getElementById('st-story-phone-force-bubble');
@@ -364,6 +397,15 @@
                 makeBubble();
                 makeFallbackPhone();
                 showToast('Phone 已放到左上角');
+            });
+        }
+        var endpointInput = document.getElementById('st-story-phone-api-endpoint');
+        var saveApi = document.getElementById('st-story-phone-api-save');
+        if (endpointInput) endpointInput.value = localStorage.getItem('st_story_phone_api_endpoint') || '';
+        if (saveApi) {
+            saveApi.addEventListener('click', function () {
+                localStorage.setItem('st_story_phone_api_endpoint', endpointInput.value.trim());
+                showToast(endpointInput.value.trim() ? 'StoryPhone API 已保存' : 'StoryPhone API 已关闭');
             });
         }
     }
@@ -404,7 +446,7 @@
         window.__STStoryPhoneAppLoaded = true;
         var script = document.createElement('script');
         script.type = 'module';
-        script.src = APP_SCRIPT + '?v=0.2.0';
+        script.src = APP_SCRIPT + '?v=0.2.1';
         script.onload = function () {
             showToast('ST-StoryPhone 已打开');
             var launcher = document.getElementById('st-story-phone-launcher');
@@ -433,7 +475,7 @@
             bubble: makeBubble,
             fallback: makeFallbackPhone,
             diagnostics: mountDiagnosticsPanel,
-            version: '0.2.0',
+            version: '0.2.1',
         };
         console.info(EXTENSION_ID + ' launcher loaded');
     });
