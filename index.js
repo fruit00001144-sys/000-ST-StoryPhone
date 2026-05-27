@@ -2,7 +2,8 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var APP_SCRIPT = '/scripts/extensions/third-party/ST-StoryPhone/app.js';
+    var currentScript = document.currentScript && document.currentScript.src ? document.currentScript.src : '';
+    var APP_SCRIPT = currentScript ? currentScript.replace(/index\.js(?:\?.*)?$/, 'app.js') : './app.js';
 
     function ready(callback) {
         if (document.readyState === 'loading') {
@@ -102,7 +103,7 @@
         window.__STStoryPhoneAppLoaded = true;
         var script = document.createElement('script');
         script.type = 'module';
-        script.src = APP_SCRIPT + '?v=0.1.4';
+        script.src = APP_SCRIPT + '?v=0.1.5';
         script.onload = function () {
             showToast('ST-StoryPhone 已打开');
             var launcher = document.getElementById('st-story-phone-launcher');
@@ -125,7 +126,7 @@
             load: loadFullApp,
             bubble: makeBubble,
             diagnostics: mountDiagnosticsPanel,
-            version: '0.1.4',
+            version: '0.1.5',
         };
         console.info(EXTENSION_ID + ' launcher loaded');
     });
