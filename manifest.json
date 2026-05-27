@@ -1,12 +1,12 @@
 {
-  "display_name": "ST-StoryPhone",
-  "loading_order": -1000,
+  "display_name": "000-ST-StoryPhone",
+  "loading_order": -999999,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
   "author": "ST-StoryPhone contributors",
   "version": "0.1.5",
-  "homePage": "https://github.com/fruit00001144-sys/ST-StoryPhone",
+  "homePage": "https://github.com/fruit00001144-sys/000-ST-StoryPhone",
   "auto_update": true
 }
