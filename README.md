@@ -77,8 +77,35 @@
 - `manifest.json`：SillyTavern 扩展清单。
 - `index.js`：极简启动器，安装/启用后立刻在主页面显示 `Phone` 小气泡。
 - `app.js`：完整手机界面和所有核心模块，点击小气泡后加载。
+- `core.js`：轻量核心状态、事件日志、可见性审计和 OpenAI-compatible API 设置/测试。
+- `st-bridge.js`：SillyTavern 上下文桥接、隐藏摘要注入和生成拦截器。
 - `style.css`：NewJeans / phoning inspired 手机界面。
 - `profiles/default.json`：默认通用 profile。
+
+## 本地调试放置路径
+
+把仓库文件夹放到：
+
+```text
+SillyTavern/public/scripts/extensions/third-party/000-ST-StoryPhone
+```
+
+然后重启 SillyTavern 或在扩展面板里刷新/重新启用。
+
+## GitHub 安装步骤
+
+1. 打开 SillyTavern `Extensions -> Install Extension`。
+2. 粘贴仓库 URL：`https://github.com/fruit00001144-sys/000-ST-StoryPhone`
+3. 安装后确认 `ST-StoryPhone` 左侧勾选启用。
+4. 回到聊天页，左上/右下会出现可拖动 `Phone` 气泡；点击后打开完整手机。
+
+## 如果没有自动加载
+
+- 确认扩展目录名是 `000-ST-StoryPhone`，并且目录下直接有 `manifest.json`，不要多套一层文件夹。
+- 在扩展管理里点“更新已启用项”或刷新浏览器缓存。
+- 如果只看到轻量手机，点扩展设置里的“显示/打开 Phone”或手机里的“重试完整手机”。
+- 打开浏览器控制台，搜索 `ST-StoryPhone full app failed to load` 或 `ST-StoryPhone boot failed`，把错误复制出来即可定位。
+- 手机完整主体依赖 `app.js` 动态导入；如果第三方主题/浏览器插件拦截模块脚本，先临时关闭再试。
 
 ## 可测试接口
 

@@ -2,7 +2,7 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var EXTENSION_VERSION = '0.3.3';
+    var EXTENSION_VERSION = '0.3.4';
     var MODULE_BASE = new URL('.', import.meta.url).href;
     var APP_SCRIPT = new URL('app.js', MODULE_BASE).href;
     var CORE_SCRIPT = new URL('core.js', MODULE_BASE).href;
@@ -616,13 +616,16 @@
 
         window.__STStoryPhoneAppLoaded = true;
         import(APP_SCRIPT + '?v=' + EXTENSION_VERSION).then(function () {
+            if (window.STStoryPhoneDebug?.boot) {
+                window.STStoryPhoneDebug.boot();
+            }
             showToast('ST-StoryPhone 已打开');
             var launcher = document.getElementById('st-story-phone-launcher');
             if (launcher) launcher.remove();
             setTimeout(function () {
-                if (!document.getElementById('st-story-phone') && !window.STStoryPhoneDebug) {
+                if (!document.getElementById('st-story-phone')) {
                     makeFallbackPhone();
-                    showToast('完整手机未挂载，已打开最小手机面板');
+                    showToast('完整手机未挂载，已打开最小手机面板；请查看控制台错误');
                 }
             }, 1200);
         }).catch(function (error) {

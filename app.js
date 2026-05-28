@@ -170,6 +170,28 @@ function createElement(tag, className, text) {
     return element;
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    })[char]);
+}
+
+function fileToDataUrl(file, maxBytes = 2 * 1024 * 1024) {
+    return new Promise((resolve, reject) => {
+        if (!file) return resolve(null);
+        if (!file.type?.startsWith('image/')) return reject(new Error('只能选择图片文件'));
+        if (file.size > maxBytes) return reject(new Error('图片太大，请选择 2MB 以内的图片'));
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('图片读取失败'));
+        reader.readAsDataURL(file);
+    });
+}
+
 function mountBootBubble() {
     if (document.getElementById('st-story-phone') || document.getElementById('st-story-phone-boot-bubble')) return;
     const bubble = createElement('button', 'stp-bubble stp-boot-bubble', 'Phone');
@@ -1032,9 +1054,81 @@ class PhoneUI {
         this.screen = this.root.querySelector('.stp-screen');
         this.root.querySelector('.stp-mini').addEventListener('click', () => this.toggleMinimized(true));
         this.root.querySelector('.stp-bubble').addEventListener('click', () => this.toggleMinimized(false));
+        this.bindDrag();
         this.bindEvents();
         this.toggleMinimized(Boolean(this.state.value.settings.minimized));
         this.render();
+    }
+
+    bindDrag() {
+        const shell = this.root;
+        const handle = this.root.querySelector('.stp-phone-top');
+        const bubble = this.root.querySelector('.stp-bubble');
+        const restore = safeJsonParse(localStorage.getItem(`${STORAGE_PREFIX}:phone_position`) || '{}', {});
+        if (typeof restore.left === 'number' && typeof restore.top === 'number') {
+            shell.style.left = `${restore.left}px`;
+            shell.style.top = `${restore.top}px`;
+            shell.style.right = 'auto';
+            shell.style.bottom = 'auto';
+        }
+        const bind = (dragHandle) => {
+            let startX = 0;
+            let startY = 0;
+            let startLeft = 0;
+            let startTop = 0;
+            let pointerId = null;
+            let moved = false;
+            dragHandle.style.touchAction = 'none';
+            dragHandle.addEventListener('pointerdown', (event) => {
+                if (event.target?.closest?.('button,input,textarea,label')) return;
+                pointerId = event.pointerId;
+                moved = false;
+                const rect = shell.getBoundingClientRect();
+                shell.style.left = `${rect.left}px`;
+                shell.style.top = `${rect.top}px`;
+                shell.style.right = 'auto';
+                shell.style.bottom = 'auto';
+                startX = event.clientX;
+                startY = event.clientY;
+                startLeft = rect.left;
+                startTop = rect.top;
+                dragHandle.setPointerCapture?.(pointerId);
+                event.preventDefault();
+            });
+            dragHandle.addEventListener('pointermove', (event) => {
+                if (pointerId !== event.pointerId) return;
+                const dx = event.clientX - startX;
+                const dy = event.clientY - startY;
+                if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+                const width = shell.offsetWidth || 52;
+                const height = shell.offsetHeight || 52;
+                const left = Math.max(4, Math.min(window.innerWidth - width - 4, startLeft + dx));
+                const top = Math.max(48, Math.min(window.innerHeight - height - 4, startTop + dy));
+                shell.style.left = `${left}px`;
+                shell.style.top = `${top}px`;
+                event.preventDefault();
+            });
+            dragHandle.addEventListener('pointerup', (event) => {
+                if (pointerId !== event.pointerId) return;
+                dragHandle.releasePointerCapture?.(pointerId);
+                pointerId = null;
+                localStorage.setItem(`${STORAGE_PREFIX}:phone_position`, JSON.stringify({
+                    left: parseInt(shell.style.left, 10) || 22,
+                    top: parseInt(shell.style.top, 10) || 86,
+                }));
+                if (dragHandle === bubble && moved) bubble.dataset.stpSuppressOpen = '1';
+                setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 0);
+                event.preventDefault();
+            });
+        };
+        bind(handle);
+        bind(bubble);
+        bubble.addEventListener('click', (event) => {
+            if (bubble.dataset.stpSuppressOpen) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        }, true);
     }
 
     bindEvents() {
@@ -1101,6 +1195,7 @@ class PhoneUI {
         const grid = createElement('div', 'stp-app-grid');
         [
             ['wechat', '微信', '💬'],
+            ['moments', '朋友圈', '🫧'],
             ['forum', profile.forum?.name || '论坛', '📌'],
             ['calendar', '日历', '📅'],
             ['memos', '备忘录', '📝'],
@@ -1143,10 +1238,11 @@ class PhoneUI {
             const action = createElement('button', 'stp-wide-action wechat-refresh', '生成/刷新朋友圈');
             action.type = 'button';
             action.addEventListener('click', () => this.generateMoments());
+            const composer = this.createSocialComposer('moment');
             const list = createElement('div', 'stp-card-list stp-moments-list');
             this.state.value.phone.moments.forEach((post) => list.append(this.renderSocialCard(post, 'moment')));
             if (!this.state.value.phone.moments.length) list.append(createElement('p', 'stp-empty', '还没有动态。点击刷新会基于主剧情状态后台生成。'));
-            body.append(action, list);
+            body.append(action, composer, list);
             wrap.append(body, this.wechatTabs(profile));
             this.screen.append(wrap);
             return;
@@ -1201,23 +1297,40 @@ class PhoneUI {
             const messages = createElement('div', 'stp-messages');
             history.forEach((message) => {
                 const bubble = createElement('div', `stp-message ${message.sender === 'user' ? 'me' : 'npc'}`);
-                bubble.textContent = message.content;
+                if (message.imageData || message.imageUrl) {
+                    const img = createElement('img', 'stp-chat-image');
+                    img.src = message.imageData || message.imageUrl;
+                    img.alt = message.content || '聊天图片';
+                    bubble.append(img);
+                }
+                if (message.sticker) bubble.append(createElement('div', 'stp-sticker', message.sticker));
+                if (message.content) bubble.append(createElement('span', '', message.content));
                 messages.append(bubble);
             });
             const form = createElement('form', 'stp-reply-box');
             form.innerHTML = `
-                <input type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="只在手机内发送..." />
+                <input name="message" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="只在手机内发送..." />
+                <label class="stp-file-button">图片<input name="image" type="file" accept="image/*" /></label>
                 <button class="stp-pixel-button" type="submit">发送</button>
                 <button class="stp-pixel-button ghost" type="button" data-generate>生成回复</button>
             `;
             form.setAttribute('autocomplete', 'off');
-            form.addEventListener('submit', (event) => {
+            form.addEventListener('submit', async (event) => {
                 event.preventDefault();
-                const input = form.querySelector('input');
+                const input = form.querySelector('input[name="message"]');
+                const fileInput = form.querySelector('input[name="image"]');
                 const text = input.value.trim();
-                if (!text) return;
-                this.pushChat(current, { sender: 'user', content: text, at: nowIso() });
+                let imageData = null;
+                try {
+                    imageData = await fileToDataUrl(fileInput.files?.[0]);
+                } catch (error) {
+                    this.showNotice(error.message);
+                    return;
+                }
+                if (!text && !imageData) return;
+                this.pushChat(current, { sender: 'user', content: text, imageData, at: nowIso() });
                 input.value = '';
+                fileInput.value = '';
                 this.renderWechat(profile);
             });
             form.querySelector('[data-generate]').addEventListener('click', () => this.generateNpcReply(current));
@@ -1272,8 +1385,8 @@ class PhoneUI {
             target: isUserSender ? (isChar ? 'char' : id) : 'user',
             actorId: id,
             visibility,
-            content: message.content,
-            summary: `${friend.name} 微信：${clampText(message.content, 100)}`,
+            content: message.content || (message.imageData || message.imageUrl ? '[图片]' : message.sticker ? `[表情包] ${message.sticker}` : ''),
+            summary: `${friend.name} 微信：${clampText(message.content || (message.imageData || message.imageUrl ? '[图片]' : message.sticker || ''), 100)}`,
         });
         this.state.save();
     }
@@ -1286,9 +1399,67 @@ class PhoneUI {
             history: this.state.value.phone.chats[friend.id] || [],
         });
         if (!result.ok) return this.showNotice(result.message);
-        const content = result.items[0]?.content || result.summary || '（对方暂时没有新消息）';
-        this.pushChat(friend, { sender: friend.id, content, at: nowIso() });
+        const item = result.items[0] || {};
+        const content = item.content || result.summary || '（对方暂时没有新消息）';
+        // TODO: If SillyTavern exposes a stable image generation extension API, wire generated image/sticker assets here.
+        this.pushChat(friend, { sender: friend.id, content, imageUrl: item.imageUrl, imageData: item.imageData, sticker: item.sticker, at: nowIso() });
         this.renderWechat(this.state.value.profile);
+    }
+
+    createSocialComposer(source) {
+        const form = createElement('form', 'stp-social-composer');
+        const isForum = source === 'forum';
+        form.innerHTML = `
+            <input name="title" autocomplete="off" placeholder="${isForum ? '标题：像论坛帖子一样发一条' : '标题/心情（可选）'}" />
+            <textarea name="content" rows="3" placeholder="${isForum ? '帖子内容，公开可见，会写入论坛事件' : '这一刻的想法，支持图文'}"></textarea>
+            <div class="stp-composer-row">
+                <label class="stp-file-button">配图<input name="image" type="file" accept="image/*" /></label>
+                <button class="stp-pixel-button" type="submit">${isForum ? '发布帖子' : '发布动态'}</button>
+            </div>
+        `;
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const data = new FormData(form);
+            const title = String(data.get('title') || '').trim();
+            const content = String(data.get('content') || '').trim();
+            let imageData = null;
+            try {
+                imageData = await fileToDataUrl(form.querySelector('input[name="image"]').files?.[0]);
+            } catch (error) {
+                this.showNotice(error.message);
+                return;
+            }
+            if (!title && !content && !imageData) return;
+            const post = {
+                id: `${source}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                actor: '我',
+                actorId: 'user',
+                author: '我',
+                title,
+                content,
+                imageData,
+                time: '刚刚',
+                board: isForum ? this.state.value.profile?.forum?.defaultBoard || '论坛' : undefined,
+                visibility: 'public',
+                likes: [],
+                comments: [],
+            };
+            if (isForum) this.state.value.phone.forumPosts.unshift(post);
+            else this.state.value.phone.moments.unshift(post);
+            this.state.addPhoneEvent({
+                source: isForum ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS,
+                type: isForum ? 'forum_user_post' : 'moment_user_post',
+                actor: 'user',
+                target: isForum ? post.board : null,
+                content: `${title} ${content} ${imageData ? '[图片]' : ''}`.trim(),
+                visibility: 'public',
+                summary: `${isForum ? '论坛发帖' : '朋友圈发图文'}：${clampText(title || content || '[图片]', 100)}`,
+            });
+            this.state.save();
+            if (isForum) this.renderForum(this.state.value.profile);
+            else this.renderMoments();
+        });
+        return form;
     }
 
     renderMoments() {
@@ -1298,10 +1469,11 @@ class PhoneUI {
         const action = createElement('button', 'stp-wide-action', '生成/刷新朋友圈');
         action.type = 'button';
         action.addEventListener('click', () => this.generateMoments());
+        const composer = this.createSocialComposer('moment');
         const list = createElement('div', 'stp-card-list');
         this.state.value.phone.moments.forEach((post) => list.append(this.renderSocialCard(post, 'moment')));
         if (!this.state.value.phone.moments.length) list.append(createElement('p', 'stp-empty', '还没有动态。点击刷新会基于主剧情状态后台生成。'));
-        wrap.append(action, list);
+        wrap.append(action, composer, list);
         this.screen.append(wrap);
     }
 
@@ -1340,10 +1512,11 @@ class PhoneUI {
         const action = createElement('button', 'stp-wide-action', '刷新论坛帖子');
         action.type = 'button';
         action.addEventListener('click', () => this.generateForum());
+        const composer = this.createSocialComposer('forum');
         const list = createElement('div', 'stp-card-list');
         this.state.value.phone.forumPosts.forEach((post) => list.append(this.renderSocialCard(post, 'forum')));
         if (!this.state.value.phone.forumPosts.length) list.append(createElement('p', 'stp-empty', '论坛空空的。刷新后会生成克制真实的校园帖子。'));
-        wrap.append(action, list);
+        wrap.append(action, composer, list);
         this.screen.append(wrap);
     }
 
@@ -1381,33 +1554,42 @@ class PhoneUI {
     renderSocialCard(post, source) {
         const card = createElement('article', 'stp-social-card');
         const comments = asArray(post.comments);
+        const likes = asArray(post.likes);
+        const likedByUser = likes.includes('user');
         card.innerHTML = `
-            <div class="stp-card-meta"><b>${post.actor || post.author || '匿名'}</b><span>${post.time || '刚刚'}</span></div>
-            <h3>${post.title || '无标题'}</h3>
-            <p>${post.content || ''}</p>
+            <div class="stp-card-meta"><b>${escapeHtml(post.actor || post.author || '匿名')}</b><span>${escapeHtml(post.time || '刚刚')}</span></div>
+            ${post.title ? `<h3>${escapeHtml(post.title)}</h3>` : ''}
+            ${post.content ? `<p>${escapeHtml(post.content)}</p>` : ''}
             <div class="stp-chip-row">
-                <span>${post.board || post.visibility || 'public'}</span>
-                <span>${asArray(post.likes).length} likes</span>
+                <span>${escapeHtml(post.board || post.visibility || 'public')}</span>
+                <span>${likes.length} likes</span>
                 <span>${comments.length} comments</span>
             </div>
         `;
+        if (post.imageData || post.imageUrl) {
+            const image = createElement('img', 'stp-social-image');
+            image.src = post.imageData || post.imageUrl;
+            image.alt = '动态配图';
+            card.insertBefore(image, card.querySelector('.stp-chip-row'));
+        }
         const actions = createElement('div', 'stp-inline-actions');
-        const like = createElement('button', 'stp-pixel-button ghost', '点赞');
+        const like = createElement('button', `stp-pixel-button ghost ${likedByUser ? 'active' : ''}`, likedByUser ? '已赞' : '点赞');
         const comment = createElement('button', 'stp-pixel-button ghost', '评论');
         like.type = 'button';
         comment.type = 'button';
         like.addEventListener('click', () => {
             post.likes = asArray(post.likes);
-            post.likes.push('user');
+            const wasLiked = post.likes.includes('user');
+            post.likes = wasLiked ? post.likes.filter((id) => id !== 'user') : [...post.likes, 'user'];
             const sourceName = source === 'forum' ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS;
             const authorId = post.actorId || post.actor || post.author || null;
             this.state.addPhoneEvent({
                 source: sourceName,
-                type: `${source}_like`,
+                type: wasLiked ? `${source}_unlike` : `${source}_like`,
                 actor: 'user',
                 target: authorId,
                 visibility: post.visibility === 'public' ? 'public' : normalizeVisibility('visible_to_npc', { user: true, actorId: 'user', targetId: authorId }),
-                summary: `点赞：${post.title || post.content}`,
+                summary: `${wasLiked ? '取消点赞' : '点赞'}：${post.title || post.content || '[图片]'}`,
             });
             this.state.save();
             this.render();
@@ -1703,10 +1885,21 @@ class StoryPhoneApp {
 
 function bootStoryPhone() {
     if (globalThis.__STStoryPhoneApp) return;
-    mountBootBubble();
-    globalThis.__STStoryPhoneApp = new StoryPhoneApp();
-    globalThis.__STStoryPhoneApp.start();
-    document.getElementById('st-story-phone-boot-bubble')?.remove();
+    try {
+        mountBootBubble();
+        globalThis.__STStoryPhoneApp = new StoryPhoneApp();
+        globalThis.__STStoryPhoneApp.start();
+        document.getElementById('st-story-phone-boot-bubble')?.remove();
+    } catch (error) {
+        globalThis.__STStoryPhoneApp = null;
+        console.error('ST-StoryPhone boot failed', error);
+        const bubble = document.getElementById('st-story-phone-boot-bubble');
+        if (bubble) {
+            bubble.textContent = 'Phone!';
+            bubble.title = `ST-StoryPhone 启动失败：${error.message}`;
+        }
+        throw error;
+    }
 }
 
 function scheduleStoryPhoneBoot() {
