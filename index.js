@@ -2,7 +2,7 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var EXTENSION_VERSION = '0.4.3';
+    var EXTENSION_VERSION = '0.4.4';
     var MODULE_BASE = new URL('.', import.meta.url).href;
     var APP_SCRIPT = new URL('app.js', MODULE_BASE).href;
     var CORE_SCRIPT = new URL('core.js', MODULE_BASE).href;

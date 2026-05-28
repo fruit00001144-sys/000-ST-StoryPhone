@@ -4,6 +4,7 @@ import stGetContext from '../../../st-context.js';
 
 const EXTENSION_ID = 'ST-StoryPhone';
 const EXTENSION_ALIAS = 'ST-PhoningPhone';
+const EXTENSION_VERSION = '0.4.4';
 const STORAGE_PREFIX = 'st_story_phone';
 
 const DEFAULT_PROFILE = {
@@ -1739,7 +1740,7 @@ class PhoneUI {
         const hero = createElement('div', 'stp-home-hero');
         hero.innerHTML = `
             <div class="stp-logo">Phoning<br>Phone</div>
-            <div class="stp-subtitle">${profile.displayName || EXTENSION_ID}</div>
+            <div class="stp-subtitle">${profile.displayName || EXTENSION_ID} · v${EXTENSION_VERSION}</div>
             <div class="stp-time">${this.state.value.time || '剧情时间未设定'}</div>
         `;
         const grid = createElement('div', 'stp-app-grid');

@@ -1,0 +1,1259 @@
+:root {
+    --stp-blue: #bfefff;
+    --stp-blue-strong: #71cfff;
+    --stp-pink: #ffd3e5;
+    --stp-cream: #fff9df;
+    --stp-mint: #d8ffe5;
+    --stp-ink: #24314f;
+    --stp-shadow: rgba(54, 80, 120, 0.26);
+    --stp-line: rgba(36, 49, 79, 0.16);
+}
+
+/* 0.4.1 visual refresh: Phoning-inspired shell, WeChat moments, Threads-like forum. */
+.stp-phone-shell {
+    --stp-ink: #111318;
+    --stp-line: rgba(17, 19, 24, 0.12);
+    font-family: Inter, "Trebuchet MS", Arial, sans-serif;
+}
+
+.stp-phone {
+    border: 6px solid rgba(231, 241, 247, 0.98);
+    border-radius: 42px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.1)),
+        linear-gradient(135deg, #d9efff 0%, #fff7fb 48%, #d6f7ff 100%);
+    box-shadow:
+        0 26px 70px rgba(49, 82, 120, 0.3),
+        inset 0 0 0 2px rgba(255, 255, 255, 0.78),
+        inset 0 -20px 35px rgba(94, 132, 158, 0.16);
+}
+
+.stp-phone-top {
+    height: 48px;
+    color: #111;
+    letter-spacing: 0;
+    font-weight: 900;
+}
+
+.stp-camera {
+    width: 92px;
+    height: 26px;
+    background: linear-gradient(180deg, #ecf3f5, #b9c6cc);
+    border: 2px solid rgba(17, 19, 24, 0.16);
+    box-shadow: inset 18px 0 18px rgba(255, 255, 255, 0.68);
+}
+
+.stp-screen {
+    height: calc(100% - 48px);
+    border: 0;
+    border-radius: 30px;
+    background:
+        radial-gradient(circle at 16px 16px, rgba(130, 180, 205, 0.18) 1.5px, transparent 2px),
+        linear-gradient(180deg, #f9fdff 0%, #fff8fc 58%, #f2fbff 100%);
+    background-size: 18px 18px, auto;
+    color: #111318;
+}
+
+.stp-home-hero {
+    position: relative;
+    min-height: 238px;
+    border: 0;
+    border-radius: 0;
+    padding: 20px 16px 10px;
+    background:
+        radial-gradient(circle at 78% 17%, rgba(255, 255, 255, 0.95) 0 28px, transparent 29px),
+        radial-gradient(circle at 28% 34%, rgba(255, 255, 255, 0.9) 0 46px, transparent 47px),
+        linear-gradient(180deg, #91c2ff 0%, #d9efff 72%, rgba(255,255,255,0) 100%);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.stp-home-hero::before {
+    content: "STORY";
+    position: absolute;
+    right: 18px;
+    top: 22px;
+    padding: 8px 16px;
+    border: 2px solid #111;
+    border-radius: 999px;
+    background: #efffd0;
+    color: #111;
+    font: 900 18px Georgia, serif;
+    transform: rotate(-9deg);
+}
+
+.stp-home-hero::after {
+    content: "";
+    position: absolute;
+    left: 24px;
+    bottom: 18px;
+    width: 170px;
+    height: 108px;
+    border: 2px solid #111;
+    border-radius: 55% 45% 50% 50%;
+    background:
+        linear-gradient(135deg, transparent 0 44%, rgba(17,17,17,0.9) 45% 46%, transparent 47%),
+        linear-gradient(180deg, rgba(255,255,255,0.85), rgba(216,241,255,0.9));
+    opacity: 0.7;
+}
+
+.stp-logo {
+    position: relative;
+    z-index: 1;
+    margin-top: 58px;
+    color: #fff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 44px;
+    line-height: 0.86;
+    letter-spacing: 0;
+    text-shadow: -2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111, 0 5px 0 #55b9ee;
+}
+
+.stp-subtitle,
+.stp-time {
+    position: relative;
+    z-index: 1;
+    color: #111;
+}
+
+.stp-app-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 16px;
+    margin-top: 18px;
+    padding: 0 8px 22px;
+}
+
+.stp-app-icon {
+    min-height: 78px;
+    border: 2px solid #111;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: 5px 5px 0 rgba(68, 197, 235, 0.55);
+}
+
+.stp-app-icon span {
+    width: 46px;
+    height: 40px;
+    margin-bottom: 8px;
+    border: 2px solid #111;
+    border-radius: 0;
+    padding: 4px 0 0;
+    background: linear-gradient(180deg, #ffffff, #bdefff);
+    color: #111;
+    font-size: 13px;
+    line-height: 32px;
+}
+
+.stp-app-icon b {
+    color: #111;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.stp-wechat-app,
+.stp-app {
+    background: #fff;
+}
+
+.stp-nav {
+    min-height: 48px;
+    border-bottom: 1px solid #ededed;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.stp-nav strong {
+    font-size: 19px;
+    font-weight: 900;
+}
+
+.stp-wechat-row,
+.stp-friend {
+    border-bottom: 1px solid #ececec;
+    background: #fff;
+}
+
+.stp-wechat-row .stp-avatar,
+.stp-friend .stp-avatar,
+.stp-social-avatar {
+    border: 3px solid #97e02e;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #eef7ff, #e7ffd8);
+    color: #111;
+    font-weight: 900;
+}
+
+.stp-chat-pane {
+    background: #fff;
+}
+
+.stp-messages {
+    background: linear-gradient(180deg, #fff, #fffdf0);
+}
+
+.stp-message {
+    border-radius: 18px;
+    box-shadow: none;
+}
+
+.stp-message.me {
+    background: #d9ff75;
+    color: #111;
+}
+
+.stp-message.npc {
+    background: #f2f2f2;
+    color: #111;
+}
+
+.stp-social-composer-v2 {
+    margin: 0;
+    border: 0;
+    border-bottom: 8px solid #f6f6f6;
+    border-radius: 0;
+    padding: 12px 14px;
+    background: #fff;
+}
+
+.stp-social-composer-v2 input,
+.stp-social-composer-v2 textarea,
+.stp-social-composer-v2 select {
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-visibility-panel {
+    display: grid;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.stp-visibility-panel > label {
+    display: grid;
+    gap: 4px;
+    font-weight: 900;
+}
+
+.stp-target-picker {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.stp-target-picker label {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid #e5e5e5;
+    border-radius: 999px;
+    padding: 5px 8px;
+    background: #fafafa;
+    white-space: nowrap;
+}
+
+.stp-moment-camera {
+    border: 0;
+    border-bottom: 1px solid #e9e9e9;
+    border-radius: 0;
+    background: #fff;
+    color: #111;
+    box-shadow: none;
+    text-align: right;
+}
+
+.stp-moment-card {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-moment-card .stp-card-meta,
+.stp-moment-card h3,
+.stp-moment-card p,
+.stp-moment-card .stp-social-image,
+.stp-moment-card .stp-chip-row,
+.stp-moment-card .stp-inline-actions,
+.stp-moment-card .stp-comment-list {
+    grid-column: 2;
+}
+
+.stp-moment-card .stp-card-meta {
+    display: grid;
+    grid-template-columns: 0 1fr auto;
+    gap: 0;
+}
+
+.stp-moment-card .stp-social-avatar {
+    grid-column: 1;
+    transform: translateX(-54px);
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+}
+
+.stp-thread-card {
+    border: 0;
+    border-bottom: 1px solid #ededed;
+    border-radius: 0;
+    background: #fff;
+    padding: 16px 14px;
+}
+
+.stp-thread-card .stp-card-meta {
+    justify-content: flex-start;
+}
+
+.stp-thread-card p {
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+.stp-chip-row span {
+    background: #f3f3f3;
+    color: #555;
+}
+
+.stp-phone-shell {
+    position: fixed;
+    right: 22px;
+    bottom: 86px;
+    z-index: 4000;
+    color: var(--stp-ink);
+    font-family: "Trebuchet MS", "Verdana", sans-serif;
+}
+
+.stp-phone {
+    width: min(360px, calc(100vw - 28px));
+    height: min(690px, calc(100vh - 110px));
+    border: 5px solid #fef3ad;
+    border-radius: 36px;
+    background:
+        radial-gradient(circle at 18% 16%, rgba(255, 211, 229, 0.9), transparent 28%),
+        radial-gradient(circle at 86% 8%, rgba(216, 255, 229, 0.9), transparent 26%),
+        linear-gradient(145deg, #b8ecff 0%, #ffe0ef 54%, #fff7c6 100%);
+    box-shadow: 0 20px 50px var(--stp-shadow), inset 0 0 0 2px rgba(255, 255, 255, 0.7);
+    overflow: hidden;
+}
+
+.stp-phone-top {
+    height: 42px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    cursor: move;
+    touch-action: none;
+}
+
+.stp-camera {
+    width: 72px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(36, 49, 79, 0.82);
+    box-shadow: inset 16px 0 0 rgba(255, 255, 255, 0.16);
+}
+
+.stp-mini {
+    justify-self: end;
+    width: 30px;
+    height: 24px;
+    border: 2px solid var(--stp-ink);
+    border-radius: 8px;
+    background: var(--stp-cream);
+    color: var(--stp-ink);
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.stp-screen {
+    height: calc(100% - 42px);
+    margin: 0 12px 12px;
+    border: 3px solid rgba(36, 49, 79, 0.28);
+    border-radius: 28px;
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+        linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+        linear-gradient(180deg, #f8fdff 0%, #fff5fb 52%, #fffbea 100%);
+    background-size: 18px 18px, 18px 18px, auto;
+    overflow: auto;
+    padding: 14px;
+}
+
+.stp-screen:has(.stp-app) {
+    padding: 0;
+    background: #f5f5f5;
+}
+
+.stp-bubble {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #fff7b8;
+    border-radius: 16px;
+    background: linear-gradient(145deg, var(--stp-blue), var(--stp-pink));
+    color: var(--stp-ink);
+    font-weight: 900;
+    font-size: 11px;
+    box-shadow: 0 12px 28px var(--stp-shadow);
+    cursor: pointer;
+    touch-action: none;
+}
+
+.stp-phone-shell .stp-bubble {
+    display: none;
+}
+
+.stp-boot-bubble {
+    position: fixed;
+    right: 22px;
+    bottom: 86px;
+    z-index: 4000;
+}
+
+.stp-is-minimized .stp-phone {
+    display: none;
+}
+
+.stp-is-minimized .stp-bubble {
+    display: block;
+}
+
+.stp-home-hero {
+    min-height: 168px;
+    border: 2px solid var(--stp-line);
+    border-radius: 24px;
+    padding: 18px;
+    background:
+        radial-gradient(circle at top right, rgba(113, 207, 255, 0.45), transparent 34%),
+        linear-gradient(135deg, rgba(255, 211, 229, 0.78), rgba(216, 255, 229, 0.78));
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.stp-logo {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 34px;
+    line-height: 0.92;
+    font-weight: 900;
+    letter-spacing: -0.06em;
+    text-shadow: 2px 2px 0 #fff;
+}
+
+.stp-subtitle,
+.stp-time {
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.stp-app-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.stp-app-icon {
+    min-height: 84px;
+    border: 2px solid var(--stp-line);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.72);
+    color: var(--stp-ink);
+    cursor: pointer;
+    box-shadow: 0 6px 0 rgba(36, 49, 79, 0.08);
+}
+
+.stp-app-icon span {
+    display: block;
+    width: 38px;
+    margin: 0 auto 7px;
+    padding: 7px 0;
+    border-radius: 13px;
+    background: var(--stp-blue);
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.stp-app-icon b {
+    display: block;
+    font-size: 12px;
+}
+
+.stp-app {
+    display: flex;
+    height: 100%;
+    min-height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: #f5f5f5;
+}
+
+.stp-nav {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 44px 1fr 44px;
+    align-items: center;
+    margin: 0;
+    padding: 10px 10px;
+    background: rgba(247, 247, 247, 0.96);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--stp-line);
+}
+
+.stp-nav strong {
+    justify-self: center;
+    color: #111;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.stp-app-close {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #111;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.stp-pixel-button,
+.stp-wide-action {
+    border: 2px solid var(--stp-ink);
+    border-radius: 10px;
+    background: var(--stp-cream);
+    color: var(--stp-ink);
+    font-size: 12px;
+    font-weight: 900;
+    box-shadow: 3px 3px 0 var(--stp-ink);
+    cursor: pointer;
+}
+
+.stp-pixel-button {
+    padding: 7px 10px;
+}
+
+.stp-wide-action {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(90deg, var(--stp-blue), var(--stp-pink));
+}
+
+.stp-pixel-button.ghost {
+    background: #fff;
+    box-shadow: 2px 2px 0 rgba(36, 49, 79, 0.6);
+}
+
+.stp-pixel-button.active,
+.stp-pixel-button.ghost.active {
+    background: #95ec69;
+}
+
+.stp-wechat-app {
+    background: #ededed;
+    color: #111;
+}
+
+.stp-wechat-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.stp-chat-layout {
+    display: grid;
+    grid-template-columns: 112px 1fr;
+    height: 100%;
+    min-height: 0;
+    background: #ededed;
+}
+
+.stp-friend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: auto;
+    border-right: 1px solid #ddd;
+    background: #f7f7f7;
+}
+
+.stp-friend {
+    border: 0;
+    border-bottom: 1px solid #e3e3e3;
+    border-radius: 0;
+    padding: 10px 8px;
+    background: transparent;
+    color: #111;
+    text-align: left;
+    cursor: pointer;
+}
+
+.stp-friend.active {
+    background: #e9e9e9;
+}
+
+.stp-friend b,
+.stp-friend span {
+    display: block;
+}
+
+.stp-friend span {
+    margin-top: 3px;
+    font-size: 11px;
+    opacity: 0.72;
+}
+
+.stp-chat-pane {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    background: #ededed;
+}
+
+.stp-chat-pane h3 {
+    margin: 0;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+    background: #f7f7f7;
+    color: #111;
+    font-size: 15px;
+    text-align: center;
+}
+
+.stp-messages {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+    padding: 14px 10px;
+    border: 0;
+    border-radius: 0;
+    background: #ededed;
+}
+
+.stp-message {
+    width: fit-content;
+    max-width: 86%;
+    margin-bottom: 8px;
+    padding: 9px 11px;
+    border-radius: 6px;
+    color: #111;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.stp-message span {
+    display: block;
+}
+
+.stp-chat-image {
+    display: block;
+    max-width: 150px;
+    max-height: 180px;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
+.stp-sticker {
+    font-size: 42px;
+    line-height: 1;
+}
+
+.stp-message.me {
+    margin-left: auto;
+    background: #95ec69;
+}
+
+.stp-message.npc {
+    background: #fff;
+    border: 0;
+}
+
+.stp-reply-box,
+.stp-editor {
+    display: flex;
+    gap: 8px;
+}
+
+.stp-reply-box {
+    flex-wrap: wrap;
+    padding: 8px;
+    border-top: 1px solid #ddd;
+    background: #f7f7f7;
+}
+
+.stp-reply-box input,
+.stp-editor input,
+.stp-editor textarea,
+.stp-settings textarea {
+    width: 100%;
+    border: 2px solid var(--stp-line);
+    border-radius: 13px;
+    padding: 9px 10px;
+    background: rgba(255, 255, 255, 0.78);
+    color: var(--stp-ink);
+    font: inherit;
+}
+
+.stp-reply-box input {
+    flex: 1 1 150px;
+    border: 0;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.stp-file-button {
+    display: inline-grid;
+    place-items: center;
+    min-width: 48px;
+    border: 0;
+    border-radius: 4px;
+    padding: 8px 10px;
+    background: #fff;
+    color: #111;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.stp-file-button input {
+    display: none;
+}
+
+.stp-avatar {
+    display: grid !important;
+    width: 36px;
+    height: 36px;
+    margin: 0 0 6px;
+    place-items: center;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 20px !important;
+    opacity: 1 !important;
+}
+
+.stp-wechat-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid #d8d8d8;
+    background: #f7f7f7;
+}
+
+.stp-wechat-tabs button {
+    border: 0;
+    background: transparent;
+    color: #444;
+    padding: 6px 0 5px;
+    font: inherit;
+    cursor: pointer;
+}
+
+.stp-wechat-tabs button span,
+.stp-wechat-tabs button b {
+    display: block;
+}
+
+.stp-wechat-tabs button span {
+    font-size: 20px;
+    line-height: 1.05;
+}
+
+.stp-wechat-tabs button b {
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.stp-wechat-tabs button.active {
+    color: #07c160;
+}
+
+.stp-wechat-discover,
+.stp-wechat-list {
+    height: 100%;
+    overflow: auto;
+    background: #ededed;
+    padding: 10px 0;
+}
+
+.stp-wechat-discover-row,
+.stp-wechat-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    background: #fff;
+    color: #111;
+    padding: 13px 14px;
+    text-align: left;
+}
+
+.stp-wechat-discover-row span,
+.stp-wechat-row .stp-avatar {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: #f4f4f4;
+    font-size: 22px;
+}
+
+.stp-wechat-discover-row b,
+.stp-wechat-row b {
+    display: block;
+    font-size: 16px;
+}
+
+.stp-wechat-discover-row small,
+.stp-wechat-row small {
+    color: #999;
+    font-size: 12px;
+}
+
+.stp-wechat-discover-row i {
+    color: #bbb;
+    font-style: normal;
+    font-size: 22px;
+}
+
+.stp-moments-list {
+    height: calc(100% - 50px);
+    overflow: auto;
+    gap: 0;
+    background: #fff;
+}
+
+.stp-wide-action.wechat-refresh {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff;
+    color: #07c160;
+}
+
+.stp-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.stp-social-composer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px;
+    border: 1px solid #e8e8e8;
+    border-radius: 14px;
+    padding: 10px;
+    background: #fff;
+}
+
+.stp-social-composer input,
+.stp-social-composer textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    padding: 8px;
+    background: #fff;
+    color: #111;
+    font: inherit;
+}
+
+.stp-composer-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.stp-card-list.compact {
+    gap: 8px;
+}
+
+.stp-social-card,
+.stp-list-card,
+.stp-note,
+.stp-empty,
+.stp-settings {
+    border: 2px solid var(--stp-line);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 12px;
+}
+
+.stp-social-card h3 {
+    margin: 8px 0 6px;
+    font-size: 15px;
+}
+
+.stp-social-card p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.stp-social-image {
+    display: block;
+    width: 100%;
+    max-height: 260px;
+    margin-top: 10px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #eee;
+}
+
+.stp-card-meta,
+.stp-chip-row,
+.stp-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.stp-card-meta {
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.stp-chip-row {
+    margin-top: 10px;
+}
+
+.stp-chip-row span {
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: var(--stp-pink);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.stp-inline-actions {
+    margin-top: 10px;
+}
+
+.stp-comment-list {
+    margin-top: 10px;
+    border-top: 1px dashed var(--stp-line);
+    padding-top: 8px;
+}
+
+.stp-comment-list p {
+    margin: 0 0 5px;
+    font-size: 12px;
+}
+
+.stp-editor {
+    flex-direction: column;
+}
+
+.stp-list-card.memo {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.stp-list-card p {
+    margin: 0;
+}
+
+.stp-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.stp-settings label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.stp-debug-pre {
+    margin: 0;
+    padding: 12px;
+    max-height: 360px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 2px solid var(--stp-line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--stp-ink);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.stp-loading {
+    min-height: 100%;
+    display: grid;
+    place-items: center;
+    border-radius: 24px;
+    background:
+        repeating-linear-gradient(45deg, rgba(255, 211, 229, 0.38) 0 8px, rgba(191, 239, 255, 0.38) 8px 16px),
+        rgba(255, 255, 255, 0.74);
+    font-weight: 900;
+    text-align: center;
+}
+
+.stp-toast {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    max-width: 260px;
+    border: 2px solid var(--stp-ink);
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: var(--stp-cream);
+    box-shadow: 4px 4px 0 var(--stp-ink);
+    font-size: 12px;
+    font-weight: 900;
+}
+
+@media (max-width: 560px) {
+    .stp-phone-shell {
+        right: 10px;
+        bottom: 72px;
+    }
+
+    .stp-phone {
+        width: calc(100vw - 20px);
+        height: min(660px, calc(100vh - 90px));
+    }
+
+    .stp-chat-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .stp-wechat-app .stp-chat-layout {
+        grid-template-columns: 104px 1fr;
+    }
+
+    .stp-friend-list {
+        flex-direction: row;
+        overflow-x: auto;
+    }
+
+    .stp-wechat-app .stp-friend-list {
+        flex-direction: column;
+        overflow: auto;
+    }
+
+    .stp-friend {
+        min-width: 106px;
+    }
+}
+
+/* 0.4.1 final overrides: keep these after the legacy rules. */
+.stp-phone-shell {
+    --stp-ink: #111318;
+    --stp-line: rgba(17, 19, 24, 0.12);
+    font-family: Inter, "Trebuchet MS", Arial, sans-serif;
+}
+
+.stp-phone {
+    border: 6px solid rgba(231, 241, 247, 0.98);
+    border-radius: 42px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.1)),
+        linear-gradient(135deg, #d9efff 0%, #fff7fb 48%, #d6f7ff 100%);
+    box-shadow: 0 26px 70px rgba(49, 82, 120, 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.78);
+}
+
+.stp-screen {
+    border: 0;
+    border-radius: 30px;
+    background:
+        radial-gradient(circle at 16px 16px, rgba(130, 180, 205, 0.18) 1.5px, transparent 2px),
+        linear-gradient(180deg, #f9fdff 0%, #fff8fc 58%, #f2fbff 100%);
+    background-size: 18px 18px, auto;
+}
+
+.stp-home-hero {
+    position: relative;
+    min-height: 238px;
+    border: 0;
+    border-radius: 0;
+    background:
+        radial-gradient(circle at 78% 17%, rgba(255, 255, 255, 0.95) 0 28px, transparent 29px),
+        radial-gradient(circle at 28% 34%, rgba(255, 255, 255, 0.9) 0 46px, transparent 47px),
+        linear-gradient(180deg, #91c2ff 0%, #d9efff 72%, rgba(255,255,255,0) 100%);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.stp-logo {
+    margin-top: 58px;
+    color: #fff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 44px;
+    line-height: 0.86;
+    letter-spacing: 0;
+    text-shadow: -2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111, 0 5px 0 #55b9ee;
+}
+
+.stp-app-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 16px;
+    padding: 0 8px 22px;
+}
+
+.stp-app-icon {
+    border: 2px solid #111;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: 5px 5px 0 rgba(68, 197, 235, 0.55);
+}
+
+.stp-app-icon span {
+    border: 2px solid #111;
+    border-radius: 0;
+    background: linear-gradient(180deg, #ffffff, #bdefff);
+    color: #111;
+    font-size: 13px;
+}
+
+.stp-wechat-app,
+.stp-app {
+    background: #fff;
+}
+
+.stp-nav {
+    border-bottom: 1px solid #ededed;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.stp-wechat-row .stp-avatar,
+.stp-friend .stp-avatar,
+.stp-social-avatar {
+    border: 3px solid #97e02e;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #eef7ff, #e7ffd8);
+    color: #111;
+    font-weight: 900;
+}
+
+.stp-message.me {
+    background: #d9ff75;
+    color: #111;
+}
+
+.stp-message.npc {
+    background: #f2f2f2;
+    color: #111;
+}
+
+.stp-social-composer-v2 {
+    margin: 0;
+    border: 0;
+    border-bottom: 8px solid #f6f6f6;
+    border-radius: 0;
+    padding: 12px 14px;
+    background: #fff;
+}
+
+.stp-social-composer-v2 input,
+.stp-social-composer-v2 textarea,
+.stp-social-composer-v2 select {
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-visibility-panel {
+    display: grid;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.stp-target-picker {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+}
+
+.stp-target-picker label {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid #e5e5e5;
+    border-radius: 999px;
+    padding: 5px 8px;
+    background: #fafafa;
+    white-space: nowrap;
+}
+
+.stp-moment-camera {
+    border: 0;
+    border-bottom: 1px solid #e9e9e9;
+    border-radius: 0;
+    background: #fff;
+    color: #111;
+    box-shadow: none;
+    text-align: right;
+}
+
+.stp-moment-card {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-moment-card .stp-card-meta,
+.stp-moment-card h3,
+.stp-moment-card p,
+.stp-moment-card .stp-social-image,
+.stp-moment-card .stp-chip-row,
+.stp-moment-card .stp-inline-actions,
+.stp-moment-card .stp-comment-list {
+    grid-column: 2;
+}
+
+.stp-moment-card .stp-social-avatar {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+}
+
+.stp-thread-card {
+    border: 0;
+    border-bottom: 1px solid #ededed;
+    border-radius: 0;
+    background: #fff;
+    padding: 16px 14px;
+}
+
+.stp-thread-card p {
+    font-size: 15px;
+    line-height: 1.55;
+}
