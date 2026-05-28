@@ -1515,11 +1515,47 @@ class PhoneProfileManager extends ProfileManager {
 
     findContactByIdentityId(identityId, profile = this.getCurrentProfile()) { return asArray(profile?.contacts).find((contact) => contact.identityId === identityId) || null; }
 
+    getContactRows(profile = this.getCurrentProfile()) {
+        return asArray(profile?.contacts).map((contact) => {
+            const identity = this.findIdentityById(contact.identityId);
+            const appVisibility = { wechat: true, moments: true, forum: false, calendar: false, memo: false, ...(contact.appVisibility || {}) };
+            const reasons = [];
+            if (contact.blocked) reasons.push('blocked');
+            if (appVisibility.wechat === false) reasons.push('appVisibility.wechat=false');
+            if (!identity) reasons.push('missing identity');
+            if (identity && identity.enabled === false) reasons.push('disabled identity');
+            const displayName = contact.alias || contact.displayName || identity?.phoneName || identity?.displayName || identity?.id || contact.identityId;
+            return {
+                contact,
+                identity,
+                appVisibility,
+                visible: reasons.length === 0,
+                filterReasons: reasons,
+                friend: identity ? {
+                    id: identity.id,
+                    identityId: identity.id,
+                    name: displayName,
+                    displayName,
+                    phoneName: identity.phoneName,
+                    avatar: identity.avatarId || avatarText(displayName),
+                    avatarId: identity.avatarId || '',
+                    role: identity.notes || identity.relationshipStage || 'NPC',
+                    relationshipStage: identity.relationshipStage || '',
+                    channels: Object.entries(appVisibility).filter(([, enabled]) => enabled).map(([key]) => key),
+                    knows: [],
+                    doesNotKnow: [],
+                    relations: [],
+                } : null,
+            };
+        });
+    }
+
+    getWechatContacts(profile = this.getCurrentProfile()) {
+        return this.getContactRows(profile).filter((row) => row.visible).map((row) => row.friend);
+    }
+
     legacyFromPhoneProfile(profile) {
-        return { ...DEFAULT_PROFILE, id: profile.profileId, displayName: profile.profileName, targetPhoneOwner: profile.hostCharName, currentChar: { id: profile.hostCharId, name: profile.hostCharName, knows: [], doesNotKnow: [] }, friends: asArray(profile.identities.npcs).filter((identity) => identity.enabled !== false && !this.findContactByIdentityId(identity.id, profile)?.blocked).map((identity) => {
-            const contact = this.findContactByIdentityId(identity.id, profile);
-            return { id: identity.id, name: contact?.alias || identity.phoneName || identity.displayName, role: identity.notes || identity.relationshipStage || 'NPC', avatar: identity.avatarId || avatarText(identity.displayName), channels: contact?.appVisibility ? Object.entries(contact.appVisibility).filter(([, enabled]) => enabled).map(([key]) => key) : ['wechat', 'moments'], knows: [], doesNotKnow: [], relations: [] };
-        }), groups: asArray(profile.groups).map((group) => ({ id: group.groupId, name: group.groupName, members: group.memberIds, rules: [] })), forum: { ...DEFAULT_PROFILE.forum }, phoneEntries: this.state.value.phoneEntries };
+        return { ...DEFAULT_PROFILE, id: profile.profileId, displayName: profile.profileName, targetPhoneOwner: profile.hostCharName, currentChar: { id: profile.hostCharId, name: profile.hostCharName, knows: [], doesNotKnow: [] }, friends: this.getWechatContacts(profile), groups: asArray(profile.groups).map((group) => ({ id: group.groupId, name: group.groupName, members: group.memberIds, rules: [] })), forum: { ...DEFAULT_PROFILE.forum }, phoneEntries: this.state.value.phoneEntries };
     }
 
     saveProfiles(profiles, currentProfileId = this.state.value.currentProfileId) {
@@ -2151,6 +2187,28 @@ class PhoneUI {
         this.screen = null;
     }
 
+    getWechatContacts(profile = this.state.value.profile) {
+        const profileContacts = this.profileManager.getWechatContacts?.();
+        if (asArray(profileContacts).length) return profileContacts;
+        return asArray(profile?.friends);
+    }
+
+    getProfileContactDiagnostics() {
+        const currentProfile = this.profileManager.getCurrentProfile?.();
+        const rows = this.profileManager.getContactRows?.(currentProfile) || [];
+        return {
+            currentProfileId: currentProfile?.profileId || null,
+            contacts: asArray(currentProfile?.contacts),
+            renderedWechatContacts: rows.filter((row) => row.visible).map((row) => row.friend),
+            rows: rows.map((row) => ({
+                identityId: row.contact.identityId,
+                displayName: row.friend?.displayName || row.contact.displayName || row.contact.alias || row.contact.identityId,
+                visible: row.visible,
+                filterReasons: row.filterReasons,
+            })),
+        };
+    }
+
     mount() {
         if (document.getElementById('st-story-phone')) return;
         document.getElementById('st-story-phone-fallback')?.remove();
@@ -2421,7 +2479,7 @@ class PhoneUI {
 
         if (activeTab === 'contacts') {
             const contacts = createElement('div', 'stp-wechat-list');
-            asArray(profile.friends).forEach((friend) => {
+            this.getWechatContacts(profile).forEach((friend) => {
                 const item = createElement('button', 'stp-wechat-row', '');
                 item.type = 'button';
                 item.innerHTML = `<span class="stp-avatar">${friend.avatar || '👤'}</span><b>${friend.name}</b><small>${friend.role || 'NPC'}</small>`;
@@ -2438,7 +2496,7 @@ class PhoneUI {
             return;
         }
 
-        const friends = asArray(profile.friends);
+        const friends = this.getWechatContacts(profile);
         const current = friends.find((friend) => friend.id === this.selectedNpc);
         if (!current) {
             const listScreen = createElement('div', 'stp-wechat-list-screen');
@@ -2534,7 +2592,7 @@ class PhoneUI {
         {
         const layout = createElement('div', 'stp-chat-layout');
         const list = createElement('div', 'stp-friend-list');
-        const friends = asArray(profile.friends);
+        const friends = this.getWechatContacts(profile);
         if (!this.selectedNpc && friends[0]) this.selectedNpc = friends[0].id;
 
         friends.forEach((friend) => {
@@ -3450,6 +3508,8 @@ class PhoneUI {
                 momentsViewersResolved: this.profileManager.getMomentsViewers(currentProfile?.momentsConfig || {}),
                 profileCardMismatchWarning: currentProfile?.hostCharId && currentProfile.hostCharId !== hostCharId,
                 missingIdentityWarnings: asArray(this.state.value.debug?.identityWarnings).filter((warning) => String(warning.message).includes('not found')).slice(-5),
+                contactDiagnostics: this.getProfileContactDiagnostics(),
+                currentTestNpcId: this.getFirstEnabledNpcId(),
             },
             storyClock: this.state.value.storyClock,
             recentPhoneEvents: this.state.value.phoneEvents.slice(-5),
@@ -3479,6 +3539,7 @@ class PhoneUI {
             ['Profile: group no host', () => this.runProfileGroupTest(false)],
             ['Profile: group with host', () => this.runProfileGroupTest(true)],
             ['Profile: selected moments', () => this.runProfileMomentSelectedTest()],
+            ['Profile: contact self-check', () => this.getProfileContactDiagnostics()],
         ].forEach(([label, fn]) => {
             const button = createElement('button', 'stp-pixel-button ghost', label);
             button.type = 'button';
@@ -3530,21 +3591,29 @@ class PhoneUI {
         return { event, player: auditor.canSee(event, 'player'), user: auditor.canSee(event, 'user') };
     }
 
+    getFirstEnabledNpcId() {
+        const npc = asArray(this.profileManager.getCurrentProfile?.()?.identities?.npcs).find((identity) => identity.enabled !== false);
+        if (npc?.id) return npc.id;
+        this.state.noteIdentityWarning('未找到 NPC，使用 fallback test_npc。', { source: 'debug_test' });
+        return 'test_npc';
+    }
+
     runIdentityTestPrivateNpc() {
         const hostCharId = this.state.getHostCharId();
+        const npcId = this.getFirstEnabledNpcId();
         const event = this.state.addPhoneEvent({
             source: EVENT_SOURCES.WECHAT,
             channel: 'wechat_private',
             type: 'identity_test_private_npc',
             speakerId: 'user',
             actorId: 'user',
-            targetId: 'test_npc',
+            targetId: npcId,
             actor: 'user',
-            target: 'test_npc',
+            target: npcId,
             content: 'identity test: user to npc',
-            visibility: normalizeVisibility('visible_to_npc', { actorId: 'user', targetId: 'test_npc' }),
+            visibility: normalizeVisibility('visible_to_npc', { actorId: 'user', targetId: npcId }),
         });
-        return { hostCharId, event, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId) };
+        return { hostCharId, npcId, event, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId) };
     }
 
     runIdentityTestPrivateHost() {
@@ -3566,19 +3635,20 @@ class PhoneUI {
 
     runIdentityTestNpcReply() {
         const hostCharId = this.state.getHostCharId();
+        const npcId = this.getFirstEnabledNpcId();
         const event = this.state.addPhoneEvent({
             source: EVENT_SOURCES.WECHAT,
             channel: 'wechat_private',
             type: 'identity_test_npc_reply',
-            speakerId: 'test_npc',
-            actorId: 'test_npc',
+            speakerId: npcId,
+            actorId: npcId,
             targetId: 'user',
-            actor: 'test_npc',
+            actor: npcId,
             target: 'user',
             content: 'identity test: npc reply',
-            visibility: normalizeVisibility('visible_to_npc', { actorId: 'test_npc', targetId: 'user' }),
+            visibility: normalizeVisibility('visible_to_npc', { actorId: npcId, targetId: 'user' }),
         });
-        return { hostCharId, event, speakerId: event.speakerId, actorId: event.actorId, hostUsedAsSpeaker: event.speakerId === hostCharId };
+        return { hostCharId, npcId, event, speakerId: event.speakerId, actorId: event.actorId, hostUsedAsSpeaker: event.speakerId === hostCharId };
     }
 
     ensureTestNpcContact() {
@@ -3667,6 +3737,7 @@ class PhoneUI {
                 profile.contacts.push(this.profileManager.makeContact({ identityId: id, displayName, alias: phoneName }));
             }
         });
+        this.selectedNpc = id;
     }
 
     profileEditNpc() {
