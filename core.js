@@ -57,7 +57,7 @@ export function createDefaultState() {
         phoneEvents: [],
         settings: {
             apiEndpoint: localStorage.getItem('st_story_phone_api_endpoint') || '',
-            apiKey: localStorage.getItem('st_story_phone_api_key') || '',
+            apiKey: '',
             apiModel: localStorage.getItem('st_story_phone_api_model') || '',
             fallbackEnabled: false,
             injectIntoMainContext: true,
@@ -113,7 +113,9 @@ export class StoryPhoneCore {
     }
 
     save() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+        const persisted = JSON.parse(JSON.stringify(this.state));
+        if (persisted?.settings) persisted.settings.apiKey = '';
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
     }
 
     syncProfile() {
@@ -130,14 +132,53 @@ export class StoryPhoneCore {
         return this.state.storyClock;
     }
 
+    getHostCharId() {
+        return this.state.profile?.currentChar?.id || 'char';
+    }
+
+    channelFromSource(source, type = '') {
+        if (source === SOURCES.WECHAT) return type === 'group_message' || type === 'group_chat' ? 'wechat_group' : 'wechat_private';
+        if (source === SOURCES.MOMENTS) return 'moments';
+        if (source === SOURCES.FORUM) return 'forum';
+        if (source === SOURCES.CALENDAR) return 'calendar';
+        if (source === SOURCES.MEMO) return 'memo';
+        if (source === SOURCES.TARGET_PHONE) return 'target_phone';
+        if (source === SOURCES.MAIN_CHAT) return 'main_chat';
+        return source || '';
+    }
+
+    resolveBasicKnownBy(event) {
+        const channel = event.channel || this.channelFromSource(event.source, event.type);
+        const actorId = event.actorId || event.actor || 'system';
+        const targetId = event.targetId ?? event.target ?? null;
+        const groupId = event.groupId || event.meta?.groupId || null;
+        if (channel === 'wechat_private') return [...new Set(['system', actorId, targetId].filter(Boolean))];
+        if (channel === 'wechat_group') {
+            const group = (this.state.profile?.groups || []).find((item) => item.id === groupId);
+            return [...new Set(['system', ...(group?.members || [groupId])].filter(Boolean))];
+        }
+        return [...new Set(['system', actorId].filter(Boolean))];
+    }
+
     addEvent(event) {
+        const source = event.source;
+        const channel = event.channel || this.channelFromSource(source, event.type);
+        const actorId = event.actorId || event.actor || 'user';
+        const targetId = event.targetId ?? event.target ?? null;
         const next = {
             id: event.id || `evt_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-            source: event.source,
+            source,
             type: event.type || 'event',
-            actor: event.actor || 'user',
-            target: event.target ?? null,
+            hostCharId: this.getHostCharId(),
+            speakerId: event.speakerId || actorId,
+            actorId,
+            targetId,
+            groupId: event.groupId || event.meta?.groupId || null,
+            channel,
+            actor: actorId,
+            target: targetId,
             content: event.content || '',
+            knownBy: this.resolveBasicKnownBy({ ...event, source, channel, actorId, targetId }),
             timestamp: event.timestamp || this.nextClock(),
             visibility: normalizeVisibility(event.visibility),
             consequences: Array.isArray(event.consequences) ? event.consequences : [],
@@ -151,6 +192,7 @@ export class StoryPhoneCore {
 
     canSee(event, speakerId) {
         if (speakerId === 'system') return true;
+        if (Array.isArray(event.knownBy) && event.knownBy.includes(speakerId)) return true;
         const visibility = normalizeVisibility(event.visibility);
         if (speakerId === 'user') return visibility.user;
         if (speakerId === 'char') return visibility.public || visibility.char;
@@ -296,7 +338,6 @@ export class StoryPhoneCore {
         this.state.settings.apiKey = key || '';
         this.state.settings.apiModel = model || '';
         localStorage.setItem('st_story_phone_api_endpoint', this.state.settings.apiEndpoint);
-        localStorage.setItem('st_story_phone_api_key', this.state.settings.apiKey);
         localStorage.setItem('st_story_phone_api_model', this.state.settings.apiModel);
         this.save();
     }

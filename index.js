@@ -545,7 +545,7 @@
         var testApi = document.getElementById('st-story-phone-api-test');
         var apiStatus = document.getElementById('st-story-phone-api-status');
         if (endpointInput) endpointInput.value = localStorage.getItem('st_story_phone_api_endpoint') || '';
-        if (keyInput) keyInput.value = localStorage.getItem('st_story_phone_api_key') || '';
+        if (keyInput) keyInput.value = '';
         if (modelInput) modelInput.value = localStorage.getItem('st_story_phone_api_model') || '';
         if (saveApi) {
             saveApi.addEventListener('click', function () {
@@ -555,7 +555,6 @@
                     model: modelInput.value.trim(),
                 };
                 localStorage.setItem('st_story_phone_api_endpoint', settings.endpoint);
-                localStorage.setItem('st_story_phone_api_key', settings.key);
                 localStorage.setItem('st_story_phone_api_model', settings.model);
                 getCore().then(function (core) {
                     if (core?.setApiSettings) core.setApiSettings(settings);

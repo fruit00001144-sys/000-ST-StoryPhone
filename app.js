@@ -67,15 +67,15 @@ const DEFAULT_PROFILE = {
 const EVENT_SOURCES = {
     MAIN_CHAT: 'main_chat',
     WECHAT: 'phone_wechat',
-    PRIVATE_CHAT: 'phone_private_chat',
-    GROUP_CHAT: 'phone_group_chat',
+    PRIVATE_CHAT: 'phone_wechat',
+    GROUP_CHAT: 'phone_wechat',
     MOMENTS: 'phone_moments',
     FORUM: 'phone_forum',
     CALENDAR: 'phone_calendar',
     MEMO: 'phone_memo',
-    SYSTEM_PUSH: 'phone_system_push',
+    SYSTEM_PUSH: 'phone_wechat',
     TARGET_PHONE: 'target_phone',
-    CHARACTER_SIDE_SCREEN: 'character_side_screen',
+    CHARACTER_SIDE_SCREEN: 'target_phone',
 };
 
 const TASK_LABELS = {
@@ -121,8 +121,9 @@ function uniqueArray(values) {
 }
 
 function normalizeSpeakerId(id) {
-    if (!id) return 'user';
-    const value = String(id);
+    if (typeof id === 'object' && id !== null) return normalizeSpeakerId(id.speakerId);
+    if (!id) return '';
+    const value = String(id).trim();
     if (value === 'character') return 'char';
     return value;
 }
@@ -281,6 +282,65 @@ function buildMomentVisibility(profile, scope = {}) {
     };
 }
 
+function speakerIsChar(profile, speakerId) {
+    const id = normalizeSpeakerId(speakerId);
+    const current = profile?.currentChar || {};
+    return id === 'char' || id === current.id || id === current.name || id === profile?.targetPhoneOwner;
+}
+
+function getSpeakerProfile(profile, speakerId) {
+    const id = normalizeSpeakerId(speakerId);
+    if (speakerIsChar(profile, id)) return profile?.currentChar || {};
+    return asArray(profile?.friends).find((friend) => friend.id === id || friend.name === id) || {};
+}
+
+function speakerHasChannel(profile, speakerId, channelId) {
+    const id = normalizeSpeakerId(speakerId);
+    if (id === 'system' || id === 'user' || id === 'player') return true;
+    if (id === 'public_channel' || id === `channel:${channelId}`) return true;
+    const speaker = getSpeakerProfile(profile, id);
+    const explicit = asArray(speaker.channels);
+    if (explicit.length) return explicit.includes(channelId);
+    const channel = asArray(profile?.publicChannels).find((item) => item.id === channelId);
+    return ['all', 'public', 'everyone'].includes(String(channel?.audience || '').toLowerCase());
+}
+
+function eventPublicChannel(event) {
+    if (event?.source === EVENT_SOURCES.FORUM) return 'forum';
+    if (event?.source === EVENT_SOURCES.MOMENTS) return 'moments';
+    return null;
+}
+
+function publicEventVisibleToSpeaker(profile, event, speakerId) {
+    const id = normalizeSpeakerId(speakerId);
+    const visibility = normalizeVisibility(event?.visibility);
+    if (!visibility.public) return false;
+    if (id === 'system' || id === 'user' || id === 'player') return true;
+    const channelId = eventPublicChannel(event);
+    if (!channelId) return true;
+    return speakerHasChannel(profile, id, channelId);
+}
+
+function channelFromSource(source, type = '') {
+    if (source === EVENT_SOURCES.WECHAT) return type === 'group_message' || type === 'group_chat' ? 'wechat_group' : 'wechat_private';
+    if (source === EVENT_SOURCES.MOMENTS) return 'moments';
+    if (source === EVENT_SOURCES.FORUM) return 'forum';
+    if (source === EVENT_SOURCES.MEMO) return 'memo';
+    if (source === EVENT_SOURCES.CALENDAR) return 'calendar';
+    if (source === EVENT_SOURCES.TARGET_PHONE) return 'target_phone';
+    if (source === EVENT_SOURCES.MAIN_CHAT) return 'main_chat';
+    return source || '';
+}
+
+function resolveProfileActorId(profile, value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw === 'user' || raw === 'player' || raw === 'system') return raw;
+    if (speakerIsChar(profile, raw)) return 'char';
+    const npc = asArray(profile?.friends).find((friend) => friend.id === raw || friend.name === raw);
+    return npc?.id || raw;
+}
+
 function momentVisibilityLabel(profile, scope = {}) {
     const normalized = normalizeMomentVisibility(scope.mode, scope.selected, scope.excluded);
     const nameOf = (id) => profileSelectableTargets(profile).find((item) => item.id === id)?.name || id;
@@ -355,7 +415,9 @@ class StorageManager {
         const key = this.getKey(scope);
         this.memory[key] = value;
         try {
-            localStorage.setItem(key, JSON.stringify(value));
+            const persisted = cloneValue(value);
+            if (persisted?.settings) persisted.settings.apiKey = '';
+            localStorage.setItem(key, JSON.stringify(persisted));
         } catch {
             // localStorage may be unavailable in hardened WebViews; in-memory storage keeps the session usable.
         }
@@ -454,15 +516,22 @@ class KnowledgeTimelineAuditor {
     }
 
     getNpcProfile(speakerId) {
-        const id = normalizeSpeakerId(speakerId);
-        if (id === 'char') return this.profile.currentChar || {};
-        return asArray(this.profile.friends).find((friend) => friend.id === id || friend.name === id) || {};
+        return getSpeakerProfile(this.profile, speakerId);
     }
 
     canSee(event, speakerId) {
-        if (isVisibleToSpeaker(event, speakerId)) return true;
         const id = normalizeSpeakerId(speakerId);
         const visibility = normalizeVisibility(event?.visibility);
+        if (id === 'system') return true;
+        const knownBy = asArray(event?.knownBy);
+        if (knownBy.includes(id)) return true;
+        if (speakerIsChar(this.profile, id) && knownBy.includes(this.profile?.currentChar?.id)) return true;
+        if (id === 'player') return visibility.player || visibility.user || visibility.public;
+        if (id === 'user') return visibility.user;
+        if (visibility.public && eventPublicChannel(event)) return publicEventVisibleToSpeaker(this.profile, event, id);
+        if (speakerIsChar(this.profile, id)) return visibility.char || publicEventVisibleToSpeaker(this.profile, event, id);
+        if (publicEventVisibleToSpeaker(this.profile, event, id)) return true;
+        if (visibility.npcs.includes(id)) return true;
         if (!visibility.groups.length) return false;
         return asArray(this.profile.groups).some((group) => (
             visibility.groups.includes(group.id) && asArray(group.members).includes(id)
@@ -540,6 +609,7 @@ class KnowledgeTimelineAuditor {
             '【Knowledge & Timeline Consistency Boundary】',
             `speakerId: ${context.speakerId}`,
             `taskType: ${taskType}`,
+            'Generated items must name their acting speaker with actorId or speakerId when they represent an NPC, forum poster, or moments author.',
             `当前剧情时间: ${JSON.stringify(context.storyClock)}`,
             `当前事件顺序 orderIndex: ${context.storyClock.orderIndex}`,
             `当前请求: ${JSON.stringify(payload)}`,
@@ -570,6 +640,26 @@ class KnowledgeTimelineAuditor {
                     });
                 }
             });
+        });
+
+        const visibleSourceIds = new Set([
+            ...context.visibleMainEvents.map((event) => event.id),
+            ...context.visiblePhoneEvents.map((event) => event.id),
+        ]);
+        asArray(this.state.eventLog).forEach((event) => {
+            if (visibleSourceIds.has(event.id)) return;
+            const visibility = normalizeVisibility(event.visibility);
+            const privateSource = !visibility.public || ['phone_wechat', 'phone_memo', 'target_phone'].includes(event.source);
+            const actorOrTarget = [event.actor, event.target].filter(Boolean).map((value) => actorDisplayName(this.profile, value));
+            const mentionsParticipant = actorOrTarget.some((name) => name && name.length >= 2 && text.includes(name));
+            const mentionsContent = contentNeedles(event.content).some((needle) => text.includes(needle));
+            if (privateSource && mentionsParticipant && mentionsContent) {
+                issues.push({
+                    type: 'visibility_error',
+                    detail: `speaker ${context.speakerId} appears to use a private event without a visible propagation chain: ${event.id}`,
+                    suggestedFix: 'Remove the private detail, or first add an explicit tell/share/publicize event that makes it visible to this speaker.',
+                });
+            }
         });
 
         const futureEvents = asArray(this.state.eventLog).filter((event) => {
@@ -658,9 +748,19 @@ class SharedStoryState {
             pendingEvents: [],
             knowledgeGraph: [],
             phoneEntries: [],
+            phoneProfiles: [],
+            currentProfileId: null,
             linkedLorebookEntries: [],
             mediaDescriptions: [],
             proactiveQueue: [],
+            debug: {
+                identityWarnings: [],
+                lastIdentityContext: null,
+                lastCreatedEvent: null,
+                lastKnownBy: [],
+                speakerFallbackOccurred: false,
+                currentCharMisuseDetected: false,
+            },
             phone: {
                 chats: {},
                 groupChats: {},
@@ -687,7 +787,7 @@ class SharedStoryState {
                 injectIntoMainContext: true,
                 minimized: false,
                 apiEndpoint: localStorage.getItem('st_story_phone_api_endpoint') || '',
-                apiKey: localStorage.getItem('st_story_phone_api_key') || '',
+                apiKey: '',
                 apiModel: localStorage.getItem('st_story_phone_api_model') || '',
             },
             profile: DEFAULT_PROFILE,
@@ -711,9 +811,13 @@ class SharedStoryState {
         this.data.mainEvents = asArray(this.data.mainEvents);
         this.data.knowledgeGraph = asArray(this.data.knowledgeGraph);
         this.data.phoneEntries = asArray(asArray(this.data.phoneEntries).length ? this.data.phoneEntries : this.data.profile?.phoneEntries || defaults.profile.phoneEntries);
+        this.data.phoneProfiles = asArray(this.data.phoneProfiles);
+        this.data.currentProfileId = this.data.currentProfileId || null;
         this.data.linkedLorebookEntries = asArray(this.data.linkedLorebookEntries);
         this.data.mediaDescriptions = asArray(this.data.mediaDescriptions);
         this.data.proactiveQueue = asArray(this.data.proactiveQueue);
+        this.data.debug = { ...defaults.debug, ...(this.data.debug || {}) };
+        this.data.debug.identityWarnings = asArray(this.data.debug.identityWarnings);
         this.data.settings = { ...defaults.settings, ...(this.data.settings || {}) };
         this.data.phone = { ...defaults.phone, ...(this.data.phone || {}) };
         this.data.phone.groupChats = this.data.phone.groupChats || {};
@@ -740,6 +844,53 @@ class SharedStoryState {
         this.save();
     }
 
+    getCurrentPhoneProfile() {
+        return asArray(this.data.phoneProfiles).find((profile) => profile.profileId === this.data.currentProfileId) || null;
+    }
+
+    findProfileIdentity(identityId) {
+        const profile = this.getCurrentPhoneProfile();
+        if (!identityId || !profile?.identities) return null;
+        if (profile.identities.user?.id === identityId) return profile.identities.user;
+        if (profile.identities.hostChar?.id === identityId) return profile.identities.hostChar;
+        return asArray(profile.identities.npcs).find((identity) => identity.id === identityId) || null;
+    }
+
+    findProfileContact(identityId) {
+        const profile = this.getCurrentPhoneProfile();
+        return asArray(profile?.contacts).find((contact) => contact.identityId === identityId) || null;
+    }
+
+    findProfileGroup(groupId) {
+        const profile = this.getCurrentPhoneProfile();
+        return asArray(profile?.groups).find((group) => group.groupId === groupId || group.id === groupId) || null;
+    }
+
+    getProfileGroupMembers(groupId) {
+        const group = this.findProfileGroup(groupId);
+        if (group) return asArray(group.memberIds);
+        const legacy = asArray(this.data.profile?.groups).find((item) => item.id === groupId);
+        return legacy ? asArray(legacy.members) : [];
+    }
+
+    getProfileForumBoard(boardId) {
+        const profile = this.getCurrentPhoneProfile();
+        return asArray(profile?.forumBoards).find((board) => board.boardId === boardId || board.boardName === boardId) || null;
+    }
+
+    getProfileMomentsViewers(config = {}) {
+        const profile = this.getCurrentPhoneProfile();
+        const moments = { ...(profile?.momentsConfig || {}), ...(config || {}) };
+        const mode = moments.visibility || moments.defaultVisibility || 'friends';
+        let viewers = [];
+        if (mode === 'selected') viewers = asArray(moments.selectedViewers || moments.viewerIds || moments.friendIds);
+        else if (mode === 'friends') viewers = asArray(moments.friendIds);
+        else if (mode === 'private') viewers = [];
+        else viewers = asArray(moments.friendIds);
+        const blocked = asArray(moments.blockedViewerIds);
+        return uniqueArray(viewers).filter((id) => !blocked.includes(id));
+    }
+
     nextTimestamp() {
         const next = {
             storyDay: this.data.storyClock?.storyDay || this.data.time || '未设定',
@@ -751,9 +902,156 @@ class SharedStoryState {
         return { ...next };
     }
 
+    noteIdentityWarning(message, detail = {}) {
+        const warning = { at: nowIso(), message, detail };
+        this.data.debug = this.data.debug || {};
+        this.data.debug.identityWarnings = asArray(this.data.debug.identityWarnings);
+        this.data.debug.identityWarnings.push(warning);
+        this.data.debug.identityWarnings = this.data.debug.identityWarnings.slice(-20);
+        console.warn(`${EXTENSION_ID} identity warning: ${message}`, detail);
+        return warning;
+    }
+
+    getHostCharId() {
+        return this.data.profile?.currentChar?.id || 'char';
+    }
+
+    normalizeSpeakerId(input, options = {}) {
+        const explicit = typeof input === 'object' && input !== null ? input.speakerId : input;
+        const speakerId = normalizeSpeakerId(explicit);
+        if (speakerId) return speakerId;
+        if (options.allowHostFallback) {
+            const hostCharId = this.getHostCharId();
+            this.data.debug.speakerFallbackOccurred = true;
+            this.noteIdentityWarning('speakerId missing; falling back to hostCharId only because the caller explicitly allowed host fallback.', {
+                hostCharId,
+                reason: options.reason || '',
+            });
+            return hostCharId;
+        }
+        return '';
+    }
+
+    buildIdentityContext(event = {}) {
+        const hostCharId = this.getHostCharId();
+        const actorId = event.actorId || event.actor || 'system';
+        const targetId = event.targetId ?? event.target ?? null;
+        const groupId = event.groupId || event.meta?.groupId || null;
+        const channel = event.channel || channelFromSource(event.source, event.type);
+        const speakerId = this.normalizeSpeakerId(event, {
+            allowHostFallback: Boolean(event.allowHostSpeakerFallback),
+            reason: event.fallbackReason || 'host character event',
+        }) || event.speakerId || actorId;
+        const identity = { hostCharId, speakerId, actorId, targetId, groupId, channel };
+        this.data.debug.lastIdentityContext = identity;
+        if (hostCharId && event.actorId === undefined && event.actor === hostCharId) {
+            this.data.debug.currentCharMisuseDetected = true;
+            this.noteIdentityWarning('actor defaults look like hostCharId; verify this is not an NPC speaker identity leak.', identity);
+        }
+        return identity;
+    }
+
+    resolveBasicKnownBy(event) {
+        const channel = event.channel || channelFromSource(event.source, event.type);
+        const actorId = event.actorId || event.actor || 'system';
+        const targetId = event.targetId ?? event.target ?? null;
+        const groupId = event.groupId || event.meta?.groupId || null;
+        const knownBy = ['system'];
+        if (channel === 'wechat_private') {
+            knownBy.push(actorId, targetId);
+        } else if (channel === 'wechat_group') {
+            const members = this.getProfileGroupMembers(groupId);
+            if (members.length) knownBy.push(...members);
+            else {
+                knownBy.push(actorId);
+                this.noteIdentityWarning('group not found; cannot expand memberIds for wechat_group event.', { groupId, eventId: event.id });
+            }
+        } else if (channel === 'moments') {
+            knownBy.push(actorId, ...this.getProfileMomentsViewers({
+                visibility: event.visibilityMode,
+                selectedViewers: event.selectedViewers || event.visibilityHint,
+            }));
+        } else if (channel === 'forum') {
+            knownBy.push(actorId);
+            const board = this.getProfileForumBoard(event.forumBoardId || event.targetId || event.target);
+            if (board?.visibility === 'members_only' || board?.visibility === 'selected') knownBy.push(...asArray(board.memberIds));
+        } else if (channel === 'memo' || channel === 'calendar') {
+            knownBy.push(actorId);
+        } else {
+            const visibility = normalizeVisibility(event.visibility);
+            knownBy.push(actorId, targetId, ...visibility.npcs, ...visibility.groups);
+            if (visibility.char) knownBy.push(this.getHostCharId());
+        }
+        return uniqueArray(knownBy);
+    }
+
+    classifyEvent(event) {
+        const knownBy = this.resolveBasicKnownBy(event);
+        return {
+            ...event,
+            knownBy,
+            public: event.channel === 'forum' && (event.publicLevel === 'public' || normalizeVisibility(event.visibility).public),
+        };
+    }
+
+    createPhoneEvent(event = {}) {
+        return this.createEvent({
+            ...event,
+            source: event.source || ({
+                wechat_private: EVENT_SOURCES.WECHAT,
+                wechat_group: EVENT_SOURCES.WECHAT,
+                moments: EVENT_SOURCES.MOMENTS,
+                forum: EVENT_SOURCES.FORUM,
+                memo: EVENT_SOURCES.MEMO,
+                calendar: EVENT_SOURCES.CALENDAR,
+                target_phone: EVENT_SOURCES.TARGET_PHONE,
+            }[event.channel] || EVENT_SOURCES.WECHAT),
+        });
+    }
+
     createEvent(event) {
         const timestamp = event.timestamp || this.nextTimestamp();
+        const identity = this.buildIdentityContext(event);
         const visibility = normalizeVisibility(event.visibility, event);
+        const classified = this.classifyEvent({ ...event, ...identity, visibility });
+        const source = event.source || EVENT_SOURCES.MAIN_CHAT;
+        if (identity.actorId && !this.findProfileIdentity(identity.actorId) && !['system', 'anonymous', 'player'].includes(identity.actorId)) {
+            this.noteIdentityWarning('actorId not found in current Phone Profile identities.', { actorId: identity.actorId });
+        }
+        if (identity.targetId && !this.findProfileIdentity(identity.targetId) && !this.findProfileGroup(identity.targetId) && identity.targetId !== 'user') {
+            this.noteIdentityWarning('targetId not found in current Phone Profile identities/groups.', { targetId: identity.targetId });
+        }
+        if (identity.groupId && !this.findProfileGroup(identity.groupId)) {
+            this.noteIdentityWarning('groupId not found in current Phone Profile groups.', { groupId: identity.groupId });
+        }
+        const next = {
+            id: event.id || `event_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            source,
+            type: event.type || 'event',
+            hostCharId: identity.hostCharId,
+            speakerId: identity.speakerId,
+            actorId: identity.actorId,
+            targetId: identity.targetId,
+            groupId: identity.groupId,
+            channel: identity.channel || channelFromSource(source, event.type),
+            actor: identity.actorId || 'system',
+            target: identity.targetId ?? null,
+            content: clampText(event.content || event.summary || event.title || '', 1800),
+            media: asArray(event.media),
+            publicLevel: event.publicLevel || (visibility.public ? 'public' : 'private'),
+            knownBy: classified.knownBy,
+            public: Boolean(classified.public || visibility.public),
+            timestamp,
+            visibility,
+            consequences: asArray(event.consequences),
+            status: event.status || 'active',
+            injectToMain: event.injectToMain,
+            meta: event.meta || {},
+        };
+        this.data.debug.lastCreatedEvent = next;
+        this.data.debug.lastKnownBy = next.knownBy;
+        return next;
+        /*
         return {
             id: event.id || `event_${Date.now()}_${Math.random().toString(16).slice(2)}`,
             source: event.source || EVENT_SOURCES.MAIN_CHAT,
@@ -769,6 +1067,7 @@ class SharedStoryState {
             injectToMain: event.injectToMain,
             meta: event.meta || {},
         };
+        */
     }
 
     addEvent(event) {
@@ -844,20 +1143,26 @@ class SharedStoryState {
 
     addPhoneEvent(event) {
         const source = event.source || EVENT_SOURCES.WECHAT;
-        const actor = event.actor || event.actorId || 'user';
-        const target = event.target ?? event.targetId ?? null;
-        const isChar = this.isCharId(actor) || this.isCharId(target);
+        const actorId = event.actorId || event.actor || 'user';
+        const targetId = event.targetId ?? event.target ?? null;
+        const isCharTarget = this.isCharId(targetId);
+        const isCharActor = this.isCharId(actorId);
+        const channel = event.channel || channelFromSource(source, event.type);
         const normalizedVisibility = normalizeVisibility(event.visibility, {
             ...event,
-            actorId: actor,
-            targetId: isChar ? 'char' : target,
-            isChar,
+            actorId: isCharActor ? this.getHostCharId() : actorId,
+            targetId: isCharTarget ? this.getHostCharId() : targetId,
+            isChar: isCharActor || isCharTarget,
         });
         const logged = this.addEvent({
             ...event,
             source,
-            actor,
-            target: isChar ? 'char' : target,
+            channel,
+            actorId: isCharActor ? this.getHostCharId() : actorId,
+            targetId: isCharTarget ? this.getHostCharId() : targetId,
+            speakerId: event.speakerId || event.actorId || event.actor || actorId,
+            actor: isCharActor ? this.getHostCharId() : actorId,
+            target: isCharTarget ? this.getHostCharId() : targetId,
             content: event.content || event.summary || event.title || '',
             visibility: normalizedVisibility,
         });
@@ -890,26 +1195,89 @@ class SharedStoryState {
         this.save();
     }
 
+    buildMainChatHiddenContext(hostCharId = this.getHostCharId()) {
+        const visibleEvents = asArray(this.data.eventLog)
+            .filter((event) => asArray(event.knownBy).includes(hostCharId))
+            .slice(-12)
+            .map((event) => ({
+                id: event.id,
+                channel: event.channel,
+                type: event.type,
+                actorId: event.actorId,
+                targetId: event.targetId,
+                content: event.content,
+                timestamp: event.timestamp,
+            }));
+        const unknownEventCount = asArray(this.data.eventLog)
+            .filter((event) => !asArray(event.knownBy).includes(hostCharId))
+            .length;
+        return {
+            hostCharId,
+            visibleEvents,
+            unknownEventCount,
+            forbiddenSummary: unknownEventCount ? `${unknownEventCount} phone events are not visible to hostCharId.` : '',
+        };
+    }
+
+    buildContextForSpeaker(speakerId, options = {}) {
+        const id = this.normalizeSpeakerId({ speakerId }, {
+            allowHostFallback: Boolean(options.allowHostFallback),
+            reason: options.reason || 'buildContextForSpeaker',
+        });
+        if (!id) {
+            this.noteIdentityWarning('buildContextForSpeaker called without speakerId; returning empty context.', { options });
+            return { speakerId: '', visibleEvents: [], channelHistory: [], forbiddenFacts: [] };
+        }
+        const identity = this.findProfileIdentity(id);
+        const contact = this.findProfileContact(id);
+        if (!identity) this.noteIdentityWarning('buildContextForSpeaker speakerId missing from current Phone Profile.', { speakerId: id });
+        const channel = options.channel || null;
+        const visibleEvents = asArray(this.data.eventLog).filter((event) => asArray(event.knownBy).includes(id));
+        const channelHistory = channel ? visibleEvents.filter((event) => event.channel === channel) : [];
+        const forbiddenFacts = asArray(this.data.eventLog)
+            .filter((event) => !asArray(event.knownBy).includes(id))
+            .slice(-30)
+            .map((event) => ({
+                id: event.id,
+                channel: event.channel,
+                type: event.type,
+                reason: 'not_in_knownBy',
+            }));
+        return {
+            speakerId: id,
+            identity: identity || null,
+            displayName: identity?.displayName || id,
+            phoneName: contact?.alias || identity?.phoneName || identity?.displayName || id,
+            relationshipStage: identity?.relationshipStage || '',
+            tags: asArray(identity?.tags),
+            contact: contact || null,
+            visibleEvents,
+            channelHistory,
+            forbiddenFacts,
+            warning: identity ? '' : 'speakerId not found in current Phone Profile',
+        };
+    }
+
     upsertCalendar(item) {
         const entry = { id: item.id || `cal_${Date.now()}`, ...item };
         const index = this.data.phone.calendar.findIndex((existing) => existing.id === entry.id);
         if (index >= 0) this.data.phone.calendar[index] = entry;
         else this.data.phone.calendar.push(entry);
-        this.addPhoneEvent({ source: EVENT_SOURCES.CALENDAR, type: 'calendar_edit', actor: 'user', summary: `日历更新：${entry.title}`, visibility: 'user_only' });
+        this.addPhoneEvent({ source: EVENT_SOURCES.CALENDAR, channel: 'calendar', type: 'calendar_edit', speakerId: 'user', actorId: 'user', actor: 'user', summary: `日历更新：${entry.title}`, visibility: 'user_only' });
         this.save();
     }
 
     addMemo(text) {
         const memo = { id: `memo_${Date.now()}`, text, at: nowIso(), visibility: 'user_only' };
         this.data.phone.memos.unshift(memo);
-        this.addPhoneEvent({ source: EVENT_SOURCES.MEMO, type: 'memo_add', actor: 'user', summary: `新增备忘录：${clampText(text, 80)}`, visibility: 'user_only' });
+        this.addPhoneEvent({ source: EVENT_SOURCES.MEMO, channel: 'memo', type: 'memo_add', speakerId: 'user', actorId: 'user', actor: 'user', summary: `新增备忘录：${clampText(text, 80)}`, visibility: 'user_only' });
         this.save();
         return memo;
     }
 
     deleteMemo(id) {
         this.data.phone.memos = this.data.phone.memos.filter((memo) => memo.id !== id);
-        this.addPhoneEvent({ source: EVENT_SOURCES.MEMO, type: 'memo_delete', actor: 'user', summary: '删除了一条备忘录', visibility: 'user_only' });
+        this.addPhoneEvent({ source: EVENT_SOURCES.MEMO, channel: 'memo', type: 'memo_delete', speakerId: 'user', actorId: 'user', actor: 'user', summary: '删除了一条备忘录', visibility: 'user_only' });
         this.save();
     }
 
@@ -952,7 +1320,12 @@ class SharedStoryState {
         this.data.phone.groupChats[group.id].push(message);
         this.addPhoneEvent({
             source: EVENT_SOURCES.GROUP_CHAT,
+            channel: 'wechat_group',
             type: 'group_message',
+            speakerId: message.speakerId || message.actorId || message.actor || 'user',
+            actorId: message.actorId || message.actor || 'user',
+            targetId: group.id,
+            groupId: group.id,
             actor: message.actorId || message.actor || 'user',
             target: group.id,
             content: message.content || message.text || '',
@@ -982,8 +1355,12 @@ class SharedStoryState {
         bucket.unshift(next);
         this.addPhoneEvent({
             source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
+            channel: 'target_phone',
             type: 'character_side_item',
-            actor: 'char',
+            speakerId: this.getHostCharId(),
+            actorId: this.getHostCharId(),
+            targetId: null,
+            actor: this.getHostCharId(),
             target: null,
             content: `${next.title} ${next.content}`.trim(),
             visibility: next.visibility,
@@ -1002,7 +1379,11 @@ class SharedStoryState {
         item.visibility = 'visible_to_char';
         const event = this.addPhoneEvent({
             source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
+            channel: 'target_phone',
             type: 'side_screen_visibility_conversion',
+            speakerId: 'system',
+            actorId: 'system',
+            targetId: 'user',
             actor: 'system',
             target: 'user',
             content: `${item.title || ''} ${item.content || ''}`.trim(),
@@ -1041,6 +1422,174 @@ class ProfileManager {
         this.state.setProfile({ ...DEFAULT_PROFILE, ...profile });
         return this.state.value.profile;
     }
+}
+
+class PhoneProfileManager extends ProfileManager {
+    constructor(state) {
+        super(state);
+        this.lastCollected = null;
+    }
+
+    resolve(collected) {
+        return this.ensureProfileForCurrentCard(collected);
+    }
+
+    now() { return nowIso(); }
+    cardId(collected = this.lastCollected) { return String(collected?.characterSummary?.id || collected?.character?.avatar || collected?.characterSummary?.name || this.state.getHostCharId() || 'card'); }
+    cardName(collected = this.lastCollected) { return String(collected?.characterSummary?.name || this.state.value.profile?.currentChar?.name || this.cardId(collected)); }
+    stableProfileId(cardId) { return `profile_${String(cardId || 'card').replace(/[^a-zA-Z0-9_-]+/g, '_')}`; }
+
+    makeIdentity(input) {
+        const at = this.now();
+        return {
+            id: input.id,
+            type: input.type || 'npc',
+            displayName: input.displayName || input.name || input.id,
+            phoneName: input.phoneName || input.displayName || input.name || input.id,
+            avatarId: input.avatarId || input.avatar || '',
+            linkedCardId: input.linkedCardId || '',
+            linkedLorebookEntryIds: asArray(input.linkedLorebookEntryIds),
+            relationshipStage: input.relationshipStage || 'unknown',
+            tags: asArray(input.tags),
+            notes: input.notes || '',
+            enabled: input.enabled !== false,
+            createdAt: input.createdAt || at,
+            updatedAt: input.updatedAt || at,
+        };
+    }
+
+    makeContact(input) {
+        const at = this.now();
+        return {
+            contactId: input.contactId || `contact_${input.identityId || Date.now()}`,
+            identityId: input.identityId,
+            displayName: input.displayName || input.alias || input.identityId,
+            alias: input.alias || input.displayName || input.identityId,
+            appVisibility: { wechat: true, moments: true, forum: false, calendar: false, memo: false, ...(input.appVisibility || {}) },
+            pinned: Boolean(input.pinned),
+            muted: Boolean(input.muted),
+            blocked: Boolean(input.blocked),
+            tags: asArray(input.tags),
+            notes: input.notes || '',
+            createdAt: input.createdAt || at,
+            updatedAt: input.updatedAt || at,
+        };
+    }
+
+    normalizeProfile(profile = {}, collected = this.lastCollected) {
+        const at = this.now();
+        const cardId = this.cardId(collected);
+        const hostCharId = profile.hostCharId || profile.currentChar?.id || cardId || this.state.getHostCharId() || 'char';
+        const hostCharName = profile.hostCharName || profile.currentChar?.name || this.cardName(collected) || hostCharId;
+        const user = this.makeIdentity({ id: 'user', type: 'user', displayName: 'User', phoneName: '我', ...(profile.identities?.user || {}) });
+        const hostChar = this.makeIdentity({ id: hostCharId, type: 'host_char', displayName: hostCharName, phoneName: hostCharName, relationshipStage: 'unknown', ...(profile.identities?.hostChar || {}) });
+        const legacyNpcs = asArray(profile.friends).filter((friend) => friend.id && friend.id !== hostCharId).map((friend) => ({ id: friend.id, type: 'npc', displayName: friend.name || friend.id, phoneName: friend.name || friend.id, avatarId: friend.avatar || '', relationshipStage: friend.relationshipStage || 'unknown', notes: friend.role || friend.notes || '', enabled: friend.enabled !== false }));
+        const npcs = [...asArray(profile.identities?.npcs), ...legacyNpcs].filter((identity) => identity?.id).reduce((list, identity) => {
+            if (!list.some((item) => item.id === identity.id)) list.push(this.makeIdentity(identity));
+            return list;
+        }, []);
+        const contacts = asArray(profile.contacts).map((contact) => this.makeContact(contact));
+        if (!contacts.some((contact) => contact.identityId === hostCharId)) contacts.push(this.makeContact({ identityId: hostCharId, displayName: hostCharName, alias: hostCharName }));
+        const groups = asArray(profile.groups).map((group) => ({ groupId: group.groupId || group.id, groupName: group.groupName || group.name || group.id, appType: group.appType || 'wechat_group', memberIds: uniqueArray(group.memberIds || group.members), ownerId: group.ownerId || '', adminIds: asArray(group.adminIds), avatarId: group.avatarId || '', muted: Boolean(group.muted), tags: asArray(group.tags), notes: group.notes || '', createdAt: group.createdAt || at, updatedAt: group.updatedAt || at })).filter((group) => group.groupId);
+        return {
+            profileId: profile.profileId || this.stableProfileId(cardId),
+            profileName: profile.profileName || profile.displayName || `${hostCharName} Phone Profile`,
+            enabled: profile.enabled !== false,
+            linkedCardIds: uniqueArray([cardId, ...asArray(profile.linkedCardIds)]),
+            linkedWorldBookIds: asArray(profile.linkedWorldBookIds),
+            hostCharId,
+            hostCharName,
+            createdAt: profile.createdAt || at,
+            updatedAt: profile.updatedAt || at,
+            settings: { autoSwitchOnCardChange: true, allowUnlinkedProfiles: false, defaultApp: 'wechat', enableWechat: true, enableMoments: true, enableForum: true, enableCalendar: true, enableMemo: true, enableDebug: true, ...(profile.settings || {}) },
+            identities: { user, hostChar, npcs },
+            contacts,
+            groups,
+            forumBoards: asArray(profile.forumBoards).map((board) => ({ boardId: board.boardId || board.id || `board_${Date.now()}`, boardName: board.boardName || board.name || board.boardId || 'Board', visibility: board.visibility || 'public', memberIds: asArray(board.memberIds), anonymousAllowed: board.anonymousAllowed !== false, anonymousMap: board.anonymousMap || {}, tags: asArray(board.tags), notes: board.notes || '', createdAt: board.createdAt || at, updatedAt: board.updatedAt || at })),
+            momentsConfig: { defaultVisibility: 'friends', friendIds: [hostCharId], blockedViewerIds: [], selectedGroups: [], ...(profile.momentsConfig || {}) },
+            linkedLorebookEntries: asArray(profile.linkedLorebookEntries),
+            linkedPhoneEntries: asArray(profile.linkedPhoneEntries),
+            metadata: profile.metadata || {},
+        };
+    }
+
+    findContactByIdentityId(identityId, profile = this.getCurrentProfile()) { return asArray(profile?.contacts).find((contact) => contact.identityId === identityId) || null; }
+
+    legacyFromPhoneProfile(profile) {
+        return { ...DEFAULT_PROFILE, id: profile.profileId, displayName: profile.profileName, targetPhoneOwner: profile.hostCharName, currentChar: { id: profile.hostCharId, name: profile.hostCharName, knows: [], doesNotKnow: [] }, friends: asArray(profile.identities.npcs).filter((identity) => identity.enabled !== false && !this.findContactByIdentityId(identity.id, profile)?.blocked).map((identity) => {
+            const contact = this.findContactByIdentityId(identity.id, profile);
+            return { id: identity.id, name: contact?.alias || identity.phoneName || identity.displayName, role: identity.notes || identity.relationshipStage || 'NPC', avatar: identity.avatarId || avatarText(identity.displayName), channels: contact?.appVisibility ? Object.entries(contact.appVisibility).filter(([, enabled]) => enabled).map(([key]) => key) : ['wechat', 'moments'], knows: [], doesNotKnow: [], relations: [] };
+        }), groups: asArray(profile.groups).map((group) => ({ id: group.groupId, name: group.groupName, members: group.memberIds, rules: [] })), forum: { ...DEFAULT_PROFILE.forum }, phoneEntries: this.state.value.phoneEntries };
+    }
+
+    saveProfiles(profiles, currentProfileId = this.state.value.currentProfileId) {
+        this.state.value.phoneProfiles = profiles;
+        this.state.value.currentProfileId = currentProfileId;
+        const current = this.getCurrentProfile();
+        if (current) this.state.setProfile(this.legacyFromPhoneProfile(current));
+        else this.state.save();
+    }
+
+    getCurrentProfile() { return asArray(this.state.value.phoneProfiles).find((profile) => profile.profileId === this.state.value.currentProfileId) || null; }
+    listProfiles() { return asArray(this.state.value.phoneProfiles); }
+
+    createProfileForCurrentCard(collected = this.lastCollected) {
+        this.lastCollected = collected || this.lastCollected;
+        const profile = this.normalizeProfile({}, this.lastCollected);
+        this.saveProfiles([...this.listProfiles().filter((item) => item.profileId !== profile.profileId), profile], profile.profileId);
+        return profile;
+    }
+
+    ensureProfileForCurrentCard(collected = this.lastCollected) {
+        this.lastCollected = collected || this.lastCollected;
+        const cardId = this.cardId(this.lastCollected);
+        const matches = this.listProfiles().filter((profile) => asArray(profile.linkedCardIds).includes(cardId) && profile.enabled !== false).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+        if (matches.length > 1) this.state.noteIdentityWarning('Multiple Phone Profiles match current card; using most recently updated.', { cardId, profileIds: matches.map((item) => item.profileId) });
+        if (matches[0]) { this.switchProfile(matches[0].profileId); return matches[0]; }
+        return this.createProfileForCurrentCard(this.lastCollected);
+    }
+
+    switchProfile(profileId) {
+        const profile = this.listProfiles().find((item) => item.profileId === profileId);
+        if (!profile) throw new Error(`Profile not found: ${profileId}`);
+        this.saveProfiles(this.listProfiles(), profile.profileId);
+        return profile;
+    }
+
+    updateProfile(profileId, patch) {
+        let updated = null;
+        const profiles = this.listProfiles().map((profile) => {
+            if (profile.profileId !== profileId) return profile;
+            updated = this.normalizeProfile({ ...profile, ...patch, updatedAt: this.now() }, this.lastCollected);
+            return updated;
+        });
+        if (!updated) throw new Error(`Profile not found: ${profileId}`);
+        this.saveProfiles(profiles, this.state.value.currentProfileId);
+        return updated;
+    }
+
+    deleteProfile(profileId) {
+        const profiles = this.listProfiles().filter((profile) => profile.profileId !== profileId);
+        const nextId = this.state.value.currentProfileId === profileId ? profiles[0]?.profileId || null : this.state.value.currentProfileId;
+        this.saveProfiles(profiles, nextId);
+        return true;
+    }
+
+    exportProfile(profileId = this.state.value.currentProfileId) { return JSON.stringify(this.listProfiles().find((profile) => profile.profileId === profileId) || this.getCurrentProfile(), null, 2); }
+
+    importProfile(data) {
+        const raw = typeof data === 'string' ? safeJsonParse(data, null) : data;
+        if (!raw || typeof raw !== 'object') throw new Error('Profile JSON invalid');
+        const profile = this.normalizeProfile(raw, this.lastCollected);
+        this.saveProfiles([...this.listProfiles().filter((item) => item.profileId !== profile.profileId), profile], profile.profileId);
+        return profile;
+    }
+
+    findIdentityById(identityId) { return this.state.findProfileIdentity(identityId); }
+    findGroupById(groupId) { return this.state.findProfileGroup(groupId); }
+    getGroupMembers(groupId) { return this.state.getProfileGroupMembers(groupId); }
+    getForumBoard(boardId) { return this.state.getProfileForumBoard(boardId); }
+    getMomentsViewers(config) { return this.state.getProfileMomentsViewers(config); }
 }
 
 class PhoneEntryManager {
@@ -1287,8 +1836,7 @@ class BackgroundGenerator {
             }
 
             const parsed = this.parseGeneratedResult(taskType, raw);
-            const audit = new KnowledgeTimelineAuditor(this.state.value)
-                .auditKnowledgeConsistency(JSON.stringify(parsed.items), speakerId, speakerContext);
+            const audit = this.auditParsedResult(parsed, speakerId, speakerContext, taskType);
             return { ...parsed, ok: parsed.ok && audit.ok, audit, visibilityContext: speakerContext };
         } catch (error) {
             return { ok: false, message: `自定义 API 调用失败：${error.message}`, items: [] };
@@ -1302,7 +1850,7 @@ class BackgroundGenerator {
             for (let attempt = 0; attempt < 2; attempt += 1) {
                 const raw = await this.callConfiguredApiRaw(prompt, taskType, speakerContext);
                 const parsed = this.parseGeneratedResult(taskType, raw);
-                const audit = this.auditParsedResult(parsed, speakerId, speakerContext);
+                const audit = this.auditParsedResult(parsed, speakerId, speakerContext, taskType);
                 if (parsed.ok && audit.ok) return { ...parsed, ok: true, audit, visibilityContext: speakerContext };
                 lastAudit = audit;
                 prompt = [
@@ -1390,18 +1938,46 @@ class BackgroundGenerator {
         if (taskType === 'character_side_screen') return 'char';
         if (taskType === 'npc_chat') return normalizeSpeakerId(payload.npcId || payload.target || 'user');
         if (taskType === 'group_chat') return normalizeSpeakerId(payload.speakerId || payload.actorId || 'system');
-        if (taskType === 'forum' || taskType === 'moments') return 'system';
+        if (taskType === 'forum') return 'channel:forum';
+        if (taskType === 'moments') return 'channel:moments';
         return 'user';
     }
 
-    auditParsedResult(parsed, defaultSpeakerId, defaultContext) {
+    resolveItemSpeaker(item, defaultSpeakerId, taskType) {
+        const explicit = item.speakerId || item.actorId || item.npcId;
+        if (explicit) return normalizeSpeakerId(resolveProfileActorId(this.state.value.profile, explicit));
+        const named = resolveProfileActorId(this.state.value.profile, item.actor || item.author || '');
+        if (named && named !== item.actor && named !== item.author) return normalizeSpeakerId(named);
+        if (taskType === 'forum') return 'channel:forum';
+        if (taskType === 'moments') return 'channel:moments';
+        return normalizeSpeakerId(defaultSpeakerId);
+    }
+
+    auditParsedResult(parsed, defaultSpeakerId, defaultContext, taskType = '') {
         const auditor = new KnowledgeTimelineAuditor(this.state.value);
         const issues = [];
         asArray(parsed.items).forEach((item) => {
-            const itemSpeaker = normalizeSpeakerId(item.speakerId || item.actorId || item.npcId || defaultSpeakerId);
+            const itemSpeaker = this.resolveItemSpeaker(item, defaultSpeakerId, taskType);
             const context = itemSpeaker === defaultContext?.speakerId
                 ? defaultContext
                 : auditor.resolveVisibleContext(itemSpeaker);
+            if ((taskType === 'forum' || taskType === 'moments') && !item.actorId && !item.speakerId && !item.npcId) {
+                issues.push({
+                    type: 'npc_scope_error',
+                    detail: `[${itemSpeaker}] generated ${taskType} item is missing actorId/speakerId, so its knowledge boundary cannot be proven.`,
+                    suggestedFix: 'Return actorId or speakerId matching the phone profile, or keep the item strictly public-channel only.',
+                });
+            }
+            if ((taskType === 'forum' || taskType === 'moments') && !itemSpeaker.startsWith('channel:')) {
+                const channelId = taskType === 'forum' ? 'forum' : 'moments';
+                if (!speakerHasChannel(this.state.value.profile, itemSpeaker, channelId)) {
+                    issues.push({
+                        type: 'npc_scope_error',
+                        detail: `[${itemSpeaker}] is not configured as a ${channelId} reader/poster in the active phone profile.`,
+                        suggestedFix: `Choose an actor whose profile channels include "${channelId}", or add that channel in the profile.`,
+                    });
+                }
+            }
             const audit = auditor.auditKnowledgeConsistency(JSON.stringify(item), itemSpeaker, context);
             if (!audit.ok) issues.push(...audit.issues.map((issue) => ({
                 ...issue,
@@ -1420,7 +1996,7 @@ class BackgroundGenerator {
     async generateAndAudit(context, quietPrompt, taskType, speakerId, speakerContext) {
         const result = await context.generateQuietPrompt({ quietPrompt });
         const parsed = this.parseGeneratedResult(taskType, result);
-        const audit = this.auditParsedResult(parsed, speakerId, speakerContext);
+        const audit = this.auditParsedResult(parsed, speakerId, speakerContext, taskType);
         return { ...parsed, ok: parsed.ok && audit.ok, audit, visibilityContext: speakerContext };
     }
 
@@ -1539,11 +2115,15 @@ class ContextInjector {
         this.state = state;
     }
 
+    currentMainSpeakerId() {
+        return this.state?.value?.profile?.currentChar?.id || 'char';
+    }
+
     attach() {
         globalThis.STStoryPhoneGenerationInterceptor = async (chat, contextSize, abort, type) => {
             if (type === 'quiet') return;
             if (!this.state?.value?.settings?.injectIntoMainContext) return;
-            const summary = new KnowledgeTimelineAuditor(this.state.value).summarizeForMainChat('char');
+            const summary = new KnowledgeTimelineAuditor(this.state.value).summarizeForMainChat(this.currentMainSpeakerId());
             if (!summary) return;
 
             const note = {
@@ -2058,18 +2638,23 @@ class PhoneUI {
         this.state.value.phone.chats[id].push(message);
         const isChar = this.state.isCharId(friend.id) || this.state.isCharId(friend.name) || Boolean(friend.isChar);
         const isUserSender = message.sender === 'user';
+        const actorId = isUserSender ? 'user' : id;
+        const targetId = isUserSender ? (isChar ? this.state.getHostCharId() : id) : 'user';
         const visibility = normalizeVisibility('visible_to_npc', {
             user: true,
-            actorId: isUserSender ? 'user' : id,
-            targetId: isChar ? 'char' : id,
+            actorId,
+            targetId,
             isChar,
         });
         this.state.addPhoneEvent({
             source: EVENT_SOURCES.PRIVATE_CHAT,
+            channel: 'wechat_private',
             type: 'npc_chat',
-            actor: isUserSender ? 'user' : id,
-            target: isUserSender ? (isChar ? 'char' : id) : 'user',
-            actorId: id,
+            speakerId: actorId,
+            actor: actorId,
+            target: targetId,
+            actorId,
+            targetId,
             visibility,
             content: message.content || (message.imageData || message.imageUrl ? '[图片]' : message.sticker ? `[表情包] ${message.sticker}` : ''),
             summary: `${friend.name} 微信：${clampText(message.content || (message.imageData || message.imageUrl ? '[图片]' : message.sticker || ''), 100)}`,
@@ -2243,9 +2828,16 @@ class PhoneUI {
             else this.state.value.phone.moments.unshift(post);
             this.state.addPhoneEvent({
                 source: isForum ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS,
+                channel: isForum ? 'forum' : 'moments',
                 type: isForum ? 'forum_user_post' : 'moment_user_post',
+                speakerId: 'user',
+                actorId: 'user',
+                targetId: isForum ? post.board : null,
                 actor: 'user',
                 target: isForum ? post.board : null,
+                publicLevel: isForum ? 'public' : visibilityToLegacyLabel(visibility),
+                selectedViewers: visibilityScope.selected,
+                visibilityHint: visibilityScope.selected,
                 content: `${title} ${content} ${imageData ? '[图片]' : ''}`.trim(),
                 visibility,
                 summary: `${isForum ? '论坛发帖' : `朋友圈发布（${momentVisibilityLabel(profile, visibilityScope)}）`}：${clampText(title || content || '[图片]', 100)}`,
@@ -2305,9 +2897,14 @@ class PhoneUI {
             else this.state.value.phone.moments.unshift(post);
             this.state.addPhoneEvent({
                 source: isForum ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS,
+                channel: isForum ? 'forum' : 'moments',
                 type: isForum ? 'forum_user_post' : 'moment_user_post',
+                speakerId: 'user',
+                actorId: 'user',
+                targetId: isForum ? post.board : null,
                 actor: 'user',
                 target: isForum ? post.board : null,
+                publicLevel: isForum ? 'public' : 'public',
                 content: `${title} ${content} ${imageData ? '[图片]' : ''}`.trim(),
                 visibility: 'public',
                 summary: `${isForum ? '论坛发帖' : '朋友圈发图文'}：${clampText(title || content || '[图片]', 100)}`,
@@ -2369,11 +2966,14 @@ class PhoneUI {
             visibility: item.visibility || 'public',
         }));
         this.state.value.phone.moments.unshift(...items);
-        this.state.addPhoneEvent({ source: EVENT_SOURCES.MOMENTS, type: 'moments_refresh', actor: 'system', visibility: 'public', summary: result.summary || `生成 ${items.length} 条朋友圈` });
+        this.state.addPhoneEvent({ source: EVENT_SOURCES.MOMENTS, channel: 'moments', type: 'moments_refresh', speakerId: 'system', actorId: 'system', actor: 'system', visibility: 'public', summary: result.summary || `生成 ${items.length} 条朋友圈` });
         items.forEach((item) => {
             this.state.addPhoneEvent({
                 source: EVENT_SOURCES.MOMENTS,
+                channel: 'moments',
                 type: 'moment_post',
+                speakerId: item.actorId || item.actor || item.author || 'unknown',
+                actorId: item.actorId || item.actor || item.author || 'unknown',
                 actor: item.actorId || item.actor || item.author || 'unknown',
                 target: null,
                 content: `${item.title || ''} ${item.content || ''}`.trim(),
@@ -2461,11 +3061,15 @@ class PhoneUI {
             visibility: item.visibility || 'public',
         }));
         this.state.value.phone.forumPosts.unshift(...items);
-        this.state.addPhoneEvent({ source: EVENT_SOURCES.FORUM, type: 'forum_refresh', actor: 'system', visibility: 'public', summary: result.summary || `生成 ${items.length} 条论坛帖` });
+        this.state.addPhoneEvent({ source: EVENT_SOURCES.FORUM, channel: 'forum', type: 'forum_refresh', speakerId: 'system', actorId: 'system', actor: 'system', visibility: 'public', publicLevel: 'public', summary: result.summary || `生成 ${items.length} 条论坛帖` });
         items.forEach((item) => {
             this.state.addPhoneEvent({
                 source: EVENT_SOURCES.FORUM,
+                channel: 'forum',
                 type: 'forum_post',
+                speakerId: item.actorId || item.actor || item.author || 'anonymous',
+                actorId: item.actorId || item.actor || item.author || 'anonymous',
+                targetId: item.board || this.state.value.profile?.forum?.defaultBoard || null,
                 actor: item.actorId || item.actor || item.author || 'anonymous',
                 target: item.board || this.state.value.profile?.forum?.defaultBoard || null,
                 content: `${item.title || ''} ${item.content || ''}`.trim(),
@@ -2540,9 +3144,15 @@ class PhoneUI {
                 : 'public';
             this.state.addPhoneEvent({
                 source: sourceName,
+                channel: source === 'forum' ? 'forum' : 'moments',
                 type: wasLiked ? `${source}_unlike` : `${source}_like`,
+                speakerId: 'user',
+                actorId: 'user',
+                targetId: authorId,
                 actor: 'user',
                 target: authorId,
+                selectedViewers: post.visibilityScope?.selected,
+                visibilityHint: post.visibilityScope?.selected,
                 visibility: actionVisibility,
                 summary: `${wasLiked ? '取消点赞' : '点赞'}：${post.title || post.content || '[图片]'}`,
             });
@@ -2561,7 +3171,11 @@ class PhoneUI {
                 : 'public';
             this.state.addPhoneEvent({
                 source: sourceName,
+                channel: source === 'forum' ? 'forum' : 'moments',
                 type: `${source}_comment`,
+                speakerId: 'user',
+                actorId: 'user',
+                targetId: authorId,
                 actor: 'user',
                 target: authorId,
                 content: text.trim(),
@@ -2694,9 +3308,13 @@ class PhoneUI {
                 visibility: item.visibility || 'char_private',
             });
             this.state.addPhoneEvent({
-                source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
+                source: EVENT_SOURCES.TARGET_PHONE,
+                channel: 'target_phone',
                 type: 'target_phone_item',
-                actor: 'char',
+                speakerId: this.state.getHostCharId(),
+                actorId: this.state.getHostCharId(),
+                targetId: null,
+                actor: this.state.getHostCharId(),
                 target: null,
                 content: `${item.title || ''} ${item.content || item.text || ''}`.trim(),
                 visibility: 'char_private',
@@ -2704,7 +3322,7 @@ class PhoneUI {
                 injectToMain: false,
             });
         });
-        this.state.addPhoneEvent({ source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN, type: 'side_screen_view', actor: 'player', target: 'char', visibility: 'player_visible', summary: result.summary || `玩家查看了 ${profile.targetPhoneOwner} 的角色侧屏`, injectToMain: false });
+        this.state.addPhoneEvent({ source: EVENT_SOURCES.TARGET_PHONE, channel: 'target_phone', type: 'side_screen_view', speakerId: 'player', actorId: 'player', targetId: this.state.getHostCharId(), actor: 'player', target: this.state.getHostCharId(), visibility: 'player_visible', summary: result.summary || `玩家查看了 ${profile.targetPhoneOwner} 的角色侧屏`, injectToMain: false });
         this.state.save();
         this.renderTargetPhone(profile);
     }
@@ -2794,11 +3412,45 @@ class PhoneUI {
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('调试面板'));
         const auditor = new KnowledgeTimelineAuditor(this.state.value);
-        const charContext = auditor.buildContextForSpeaker('char');
+        const hostCharId = this.state.getHostCharId();
+        const lastEvent = this.state.value.eventLog.at(-1) || null;
+        const currentProfile = this.profileManager.getCurrentProfile?.() || null;
+        const charContext = auditor.buildContextForSpeaker(hostCharId);
         const playerContext = auditor.buildContextForSpeaker('player');
-        const entryMatch = new PhoneEntryManager(this.state).getRelevantPhoneEntries({ taskType: 'debug', speakerId: 'char', appType: 'debug' });
-        const loreMatch = new MainLorebookLinker(this.state, this.collector).getRelevantMainLore({ taskType: 'debug', speakerId: 'char', matchedPhoneEntries: entryMatch.entries });
+        const entryMatch = new PhoneEntryManager(this.state).getRelevantPhoneEntries({ taskType: 'debug', speakerId: hostCharId, appType: 'debug' });
+        const loreMatch = new MainLorebookLinker(this.state, this.collector).getRelevantMainLore({ taskType: 'debug', speakerId: hostCharId, matchedPhoneEntries: entryMatch.entries });
         const summary = createElement('pre', 'stp-debug-pre', JSON.stringify({
+            identity: {
+                hostCharId,
+                currentSpeakerId: this.state.value.debug?.lastIdentityContext?.speakerId || '',
+                actorId: this.state.value.debug?.lastIdentityContext?.actorId || '',
+                targetId: this.state.value.debug?.lastIdentityContext?.targetId || '',
+                groupId: this.state.value.debug?.lastIdentityContext?.groupId || '',
+                channel: this.state.value.debug?.lastIdentityContext?.channel || '',
+                lastCreatedEvent: this.state.value.debug?.lastCreatedEvent || lastEvent,
+                resolveBasicKnownBy: lastEvent ? this.state.resolveBasicKnownBy(lastEvent) : [],
+                speakerFallbackOccurred: Boolean(this.state.value.debug?.speakerFallbackOccurred),
+                currentCharMisuseDetected: Boolean(this.state.value.debug?.currentCharMisuseDetected),
+                identityWarnings: asArray(this.state.value.debug?.identityWarnings).slice(-5),
+            },
+            profileDebug: {
+                currentProfileId: currentProfile?.profileId || null,
+                profileName: currentProfile?.profileName || '',
+                linkedCardIds: currentProfile?.linkedCardIds || [],
+                hostCharId: currentProfile?.hostCharId || '',
+                hostCharName: currentProfile?.hostCharName || '',
+                npcCount: currentProfile?.identities?.npcs?.length || 0,
+                contactCount: currentProfile?.contacts?.length || 0,
+                groupCount: currentProfile?.groups?.length || 0,
+                forumBoardCount: currentProfile?.forumBoards?.length || 0,
+                currentEventActorIdentityFound: lastEvent ? Boolean(this.profileManager.findIdentityById(lastEvent.actorId)) : null,
+                currentEventTargetIdentityFound: lastEvent ? Boolean(this.profileManager.findIdentityById(lastEvent.targetId)) : null,
+                currentEventGroupFound: lastEvent?.groupId ? Boolean(this.profileManager.findGroupById(lastEvent.groupId)) : null,
+                groupMembersResolved: lastEvent?.groupId ? this.profileManager.getGroupMembers(lastEvent.groupId) : [],
+                momentsViewersResolved: this.profileManager.getMomentsViewers(currentProfile?.momentsConfig || {}),
+                profileCardMismatchWarning: currentProfile?.hostCharId && currentProfile.hostCharId !== hostCharId,
+                missingIdentityWarnings: asArray(this.state.value.debug?.identityWarnings).filter((warning) => String(warning.message).includes('not found')).slice(-5),
+            },
             storyClock: this.state.value.storyClock,
             recentPhoneEvents: this.state.value.phoneEvents.slice(-5),
             recentMainEvents: this.state.value.mainEvents.slice(-5),
@@ -2821,6 +3473,12 @@ class PhoneUI {
             ['只查看论坛', () => this.runVisibilityTestForumView()],
             ['群聊成员可见', () => this.runVisibilityTestGroup()],
             ['player_visible 不转 user_visible', () => this.runVisibilityTestPlayerVisible()],
+            ['Identity: user -> NPC private', () => this.runIdentityTestPrivateNpc()],
+            ['Identity: user -> host private', () => this.runIdentityTestPrivateHost()],
+            ['Identity: NPC -> user reply', () => this.runIdentityTestNpcReply()],
+            ['Profile: group no host', () => this.runProfileGroupTest(false)],
+            ['Profile: group with host', () => this.runProfileGroupTest(true)],
+            ['Profile: selected moments', () => this.runProfileMomentSelectedTest()],
         ].forEach(([label, fn]) => {
             const button = createElement('button', 'stp-pixel-button ghost', label);
             button.type = 'button';
@@ -2872,13 +3530,263 @@ class PhoneUI {
         return { event, player: auditor.canSee(event, 'player'), user: auditor.canSee(event, 'user') };
     }
 
+    runIdentityTestPrivateNpc() {
+        const hostCharId = this.state.getHostCharId();
+        const event = this.state.addPhoneEvent({
+            source: EVENT_SOURCES.WECHAT,
+            channel: 'wechat_private',
+            type: 'identity_test_private_npc',
+            speakerId: 'user',
+            actorId: 'user',
+            targetId: 'test_npc',
+            actor: 'user',
+            target: 'test_npc',
+            content: 'identity test: user to npc',
+            visibility: normalizeVisibility('visible_to_npc', { actorId: 'user', targetId: 'test_npc' }),
+        });
+        return { hostCharId, event, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId) };
+    }
+
+    runIdentityTestPrivateHost() {
+        const hostCharId = this.state.getHostCharId();
+        const event = this.state.addPhoneEvent({
+            source: EVENT_SOURCES.WECHAT,
+            channel: 'wechat_private',
+            type: 'identity_test_private_host',
+            speakerId: 'user',
+            actorId: 'user',
+            targetId: hostCharId,
+            actor: 'user',
+            target: hostCharId,
+            content: 'identity test: user to host',
+            visibility: normalizeVisibility('visible_to_char', { actorId: 'user', targetId: hostCharId, isChar: true }),
+        });
+        return { hostCharId, event, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId) };
+    }
+
+    runIdentityTestNpcReply() {
+        const hostCharId = this.state.getHostCharId();
+        const event = this.state.addPhoneEvent({
+            source: EVENT_SOURCES.WECHAT,
+            channel: 'wechat_private',
+            type: 'identity_test_npc_reply',
+            speakerId: 'test_npc',
+            actorId: 'test_npc',
+            targetId: 'user',
+            actor: 'test_npc',
+            target: 'user',
+            content: 'identity test: npc reply',
+            visibility: normalizeVisibility('visible_to_npc', { actorId: 'test_npc', targetId: 'user' }),
+        });
+        return { hostCharId, event, speakerId: event.speakerId, actorId: event.actorId, hostUsedAsSpeaker: event.speakerId === hostCharId };
+    }
+
+    ensureTestNpcContact() {
+        const current = this.profileManager.getCurrentProfile() || this.profileManager.ensureProfileForCurrentCard(this.collector.collect());
+        if (!asArray(current.identities.npcs).some((npc) => npc.id === 'test_npc')) {
+            this.profileManager.updateProfile(current.profileId, {
+                ...current,
+                identities: { ...current.identities, npcs: [...asArray(current.identities.npcs), this.profileManager.makeIdentity({ id: 'test_npc', type: 'npc', displayName: 'test_npc', phoneName: 'test_npc' })] },
+                contacts: [...asArray(current.contacts), this.profileManager.makeContact({ identityId: 'test_npc', displayName: 'test_npc', alias: 'test_npc' })],
+            });
+        }
+    }
+
+    runProfileGroupTest(includeHost) {
+        this.ensureTestNpcContact();
+        const hostCharId = this.state.getHostCharId();
+        const current = this.profileManager.getCurrentProfile();
+        const members = includeHost ? ['user', 'test_npc', hostCharId] : ['user', 'test_npc'];
+        this.profileManager.updateProfile(current.profileId, {
+            ...current,
+            groups: [...asArray(current.groups).filter((group) => group.groupId !== 'group_a'), { groupId: 'group_a', groupName: 'group_a', appType: 'wechat_group', memberIds: members, ownerId: 'user', adminIds: [], avatarId: '', muted: false, tags: [], notes: '', createdAt: nowIso(), updatedAt: nowIso() }],
+        });
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.WECHAT, channel: 'wechat_group', type: 'profile_group_test', speakerId: 'test_npc', actorId: 'test_npc', targetId: 'group_a', groupId: 'group_a', content: 'profile group test', visibility: 'visible_to_group' });
+        return { includeHost, hostCharId, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId), event };
+    }
+
+    runProfileMomentSelectedTest() {
+        this.ensureTestNpcContact();
+        const hostCharId = this.state.getHostCharId();
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.MOMENTS, channel: 'moments', type: 'profile_moment_selected_test', speakerId: 'user', actorId: 'user', content: 'profile selected moment test', selectedViewers: ['test_npc'], visibilityMode: 'selected', visibility: 'user_only' });
+        return { hostCharId, knownBy: event.knownBy, hostIncluded: event.knownBy.includes(hostCharId), event };
+    }
+
+    handleProfileAction(action) {
+        try {
+            const current = this.profileManager.getCurrentProfile();
+            if (action === 'create') this.profileManager.createProfileForCurrentCard(this.collector.collect());
+            if (action === 'rebuild') {
+                if (current) this.profileManager.deleteProfile(current.profileId);
+                this.profileManager.createProfileForCurrentCard(this.collector.collect());
+            }
+            if (action === 'switch') {
+                const id = prompt(`Profile ID:\n${this.profileManager.listProfiles().map((profile) => `${profile.profileId} - ${profile.profileName}`).join('\n')}`);
+                if (id) this.profileManager.switchProfile(id.trim());
+            }
+            if (action === 'export') {
+                console.info(`${EXTENSION_ID} phone profile`, this.profileManager.exportProfile());
+                this.showNotice('Profile 已输出到控制台');
+                return;
+            }
+            if (action === 'import') {
+                const raw = prompt('粘贴 Phone Profile JSON');
+                if (raw) this.profileManager.importProfile(raw);
+            }
+            if (action === 'add-npc') this.profileAddNpc();
+            if (action === 'edit-npc') this.profileEditNpc();
+            if (action === 'delete-npc') this.profileDeleteNpc();
+            if (action === 'edit-contact') this.profileEditContact();
+            if (action === 'add-group') this.profileAddGroup();
+            if (action === 'edit-group') this.profileEditGroup();
+            if (action === 'add-board') this.profileAddBoard();
+            if (action === 'moments') this.profileEditMoments();
+            this.renderSettings();
+        } catch (error) {
+            this.showNotice(error.message);
+        }
+    }
+
+    updateCurrentProfile(mutator) {
+        const profile = cloneValue(this.profileManager.getCurrentProfile());
+        if (!profile) throw new Error('No current Phone Profile');
+        mutator(profile);
+        return this.profileManager.updateProfile(profile.profileId, profile);
+    }
+
+    profileAddNpc() {
+        const id = prompt('NPC id');
+        if (!id) return;
+        const displayName = prompt('displayName', id) || id;
+        const phoneName = prompt('phoneName', displayName) || displayName;
+        const createContact = confirm('同时创建联系人？');
+        this.updateCurrentProfile((profile) => {
+            profile.identities.npcs = asArray(profile.identities.npcs).filter((item) => item.id !== id);
+            profile.identities.npcs.push(this.profileManager.makeIdentity({ id, type: 'npc', displayName, phoneName, relationshipStage: 'stranger' }));
+            if (createContact && !asArray(profile.contacts).some((contact) => contact.identityId === id)) {
+                profile.contacts.push(this.profileManager.makeContact({ identityId: id, displayName, alias: phoneName }));
+            }
+        });
+    }
+
+    profileEditNpc() {
+        const id = prompt('NPC id to edit');
+        if (!id) return;
+        this.updateCurrentProfile((profile) => {
+            const npc = asArray(profile.identities.npcs).find((item) => item.id === id);
+            if (!npc) throw new Error('NPC not found');
+            npc.displayName = prompt('displayName', npc.displayName) || npc.displayName;
+            npc.phoneName = prompt('phoneName', npc.phoneName) || npc.phoneName;
+            npc.relationshipStage = prompt('relationshipStage', npc.relationshipStage) || npc.relationshipStage;
+            npc.notes = prompt('notes', npc.notes) || npc.notes;
+            npc.enabled = confirm('启用该 NPC？');
+            npc.updatedAt = nowIso();
+        });
+    }
+
+    profileDeleteNpc() {
+        const id = prompt('NPC id to delete');
+        if (!id) return;
+        this.updateCurrentProfile((profile) => {
+            profile.identities.npcs = asArray(profile.identities.npcs).filter((item) => item.id !== id);
+        });
+    }
+
+    profileEditContact() {
+        const id = prompt('identityId');
+        if (!id) return;
+        this.updateCurrentProfile((profile) => {
+            let contact = asArray(profile.contacts).find((item) => item.identityId === id);
+            if (!contact) {
+                contact = this.profileManager.makeContact({ identityId: id, displayName: id, alias: id });
+                profile.contacts.push(contact);
+            }
+            contact.alias = prompt('alias', contact.alias) || contact.alias;
+            contact.pinned = confirm('pinned?');
+            contact.muted = confirm('muted?');
+            contact.blocked = confirm('blocked?');
+            contact.updatedAt = nowIso();
+        });
+    }
+
+    profileAddGroup() {
+        const groupId = prompt('groupId');
+        if (!groupId) return;
+        const groupName = prompt('groupName', groupId) || groupId;
+        const memberIds = String(prompt('memberIds comma separated', 'user') || 'user').split(',').map((item) => item.trim()).filter(Boolean);
+        this.updateCurrentProfile((profile) => {
+            profile.groups = asArray(profile.groups).filter((group) => group.groupId !== groupId);
+            profile.groups.push({ groupId, groupName, appType: 'wechat_group', memberIds, ownerId: 'user', adminIds: [], avatarId: '', muted: false, tags: [], notes: '', createdAt: nowIso(), updatedAt: nowIso() });
+        });
+    }
+
+    profileEditGroup() {
+        const groupId = prompt('groupId to edit');
+        if (!groupId) return;
+        this.updateCurrentProfile((profile) => {
+            const group = asArray(profile.groups).find((item) => item.groupId === groupId);
+            if (!group) throw new Error('Group not found');
+            group.groupName = prompt('groupName', group.groupName) || group.groupName;
+            group.memberIds = String(prompt('memberIds comma separated', asArray(group.memberIds).join(',')) || '').split(',').map((item) => item.trim()).filter(Boolean);
+            group.muted = confirm('muted?');
+            group.updatedAt = nowIso();
+        });
+    }
+
+    profileAddBoard() {
+        const boardId = prompt('boardId');
+        if (!boardId) return;
+        this.updateCurrentProfile((profile) => {
+            profile.forumBoards = asArray(profile.forumBoards).filter((board) => board.boardId !== boardId);
+            profile.forumBoards.push({ boardId, boardName: prompt('boardName', boardId) || boardId, visibility: prompt('visibility public/members_only/selected/private', 'public') || 'public', memberIds: String(prompt('memberIds comma separated', '') || '').split(',').map((item) => item.trim()).filter(Boolean), anonymousAllowed: confirm('anonymousAllowed?'), anonymousMap: {}, tags: [], notes: '', createdAt: nowIso(), updatedAt: nowIso() });
+        });
+    }
+
+    profileEditMoments() {
+        this.updateCurrentProfile((profile) => {
+            profile.momentsConfig = profile.momentsConfig || {};
+            profile.momentsConfig.defaultVisibility = prompt('defaultVisibility friends/selected/public/private', profile.momentsConfig.defaultVisibility || 'friends') || 'friends';
+            profile.momentsConfig.friendIds = String(prompt('friendIds comma separated', asArray(profile.momentsConfig.friendIds).join(',')) || '').split(',').map((item) => item.trim()).filter(Boolean);
+            profile.momentsConfig.blockedViewerIds = String(prompt('blockedViewerIds comma separated', asArray(profile.momentsConfig.blockedViewerIds).join(',')) || '').split(',').map((item) => item.trim()).filter(Boolean);
+        });
+    }
+
     renderSettings() {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('设置'));
         const settings = this.state.value.settings;
+        const currentProfile = this.profileManager.getCurrentProfile?.() || null;
         const panel = createElement('div', 'stp-settings');
         panel.innerHTML = `
+            <div class="stp-note"><b>Phone Profile</b><pre>${escapeHtml(JSON.stringify({
+                profileId: currentProfile?.profileId,
+                profileName: currentProfile?.profileName,
+                linkedCardIds: currentProfile?.linkedCardIds,
+                hostCharId: currentProfile?.hostCharId,
+                hostCharName: currentProfile?.hostCharName,
+                enabled: currentProfile?.enabled,
+                updatedAt: currentProfile?.updatedAt,
+                npcCount: currentProfile?.identities?.npcs?.length || 0,
+                contactCount: currentProfile?.contacts?.length || 0,
+                groupCount: currentProfile?.groups?.length || 0,
+                forumBoardCount: currentProfile?.forumBoards?.length || 0,
+            }, null, 2))}</pre></div>
+            <div class="stp-inline-actions">
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="create">创建当前卡 Profile</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="switch">切换 Profile</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="export">导出 Profile</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="import">导入 Profile</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="add-npc">新增 NPC</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="edit-npc">编辑 NPC</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="delete-npc">删除 NPC</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="edit-contact">编辑联系人</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="add-group">新增群</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="edit-group">编辑群</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="add-board">新增论坛板块</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="moments">朋友圈设置</button>
+                <button class="stp-pixel-button ghost" type="button" data-profile-action="rebuild">重建当前卡 Profile</button>
+            </div>
             <label><input type="checkbox" data-setting="injectIntoMainContext" ${settings.injectIntoMainContext ? 'checked' : ''}> 手机事件隐藏摘要同步到主对话</label>
             <label><input type="checkbox" data-setting="fallbackEnabled" ${settings.fallbackEnabled ? 'checked' : ''}> 开启本地 fallback（默认关闭）</label>
             <label>API URL<input data-api="endpoint" autocomplete="off" value="${settings.apiEndpoint || ''}" placeholder="http://127.0.0.1:5100/v1 或 /chat/completions"></label>
@@ -2891,6 +3799,9 @@ class PhoneUI {
             <button class="stp-pixel-button" type="button" data-import>导入 Profile</button>
             <button class="stp-pixel-button ghost" type="button" data-export>导出当前状态到控制台</button>
         `;
+        panel.querySelectorAll('[data-profile-action]').forEach((button) => {
+            button.addEventListener('click', () => this.handleProfileAction(button.dataset.profileAction));
+        });
         panel.querySelectorAll('[data-setting]').forEach((input) => {
             input.addEventListener('change', () => {
                 this.state.value.settings[input.dataset.setting] = input.checked;
@@ -2902,7 +3813,6 @@ class PhoneUI {
             settings.apiKey = panel.querySelector('[data-api="key"]').value.trim();
             settings.apiModel = panel.querySelector('[data-api="model"]').value.trim();
             localStorage.setItem('st_story_phone_api_endpoint', settings.apiEndpoint);
-            localStorage.setItem('st_story_phone_api_key', settings.apiKey);
             localStorage.setItem('st_story_phone_api_model', settings.apiModel);
             this.state.save();
             this.showNotice(settings.apiEndpoint ? 'API 设置已保存' : 'API 已关闭');
@@ -2977,12 +3887,17 @@ class MainChatObserver {
         this.seen.add(key);
 
         const collected = this.collector.collect();
-        const actor = speaker === 'user' ? 'user' : 'char';
+        const actor = speaker === 'user' ? 'user' : this.state.getHostCharId();
+        const targetId = actor === 'user' ? this.state.getHostCharId() : 'user';
         this.state.addEvent({
             source: EVENT_SOURCES.MAIN_CHAT,
+            channel: 'main_chat',
             type: speaker === 'user' ? 'main_user_message' : 'main_char_message',
+            speakerId: actor,
+            actorId: actor,
+            targetId,
             actor,
-            target: actor === 'user' ? 'char' : 'user',
+            target: targetId,
             content: text,
             visibility: {
                 system: true,
@@ -3008,7 +3923,7 @@ class StoryPhoneApp {
         this.collector = new ContextCollector();
         const collected = this.collector.collect();
         this.state = new SharedStoryState(this.storage, collected.chatId);
-        this.profileManager = new ProfileManager(this.state);
+        this.profileManager = new PhoneProfileManager(this.state);
         this.generator = new BackgroundGenerator(this.state, this.collector);
         this.injector = new ContextInjector(this.state);
         this.scheduler = new ProactivePhoneEventScheduler(this.state);
@@ -3023,6 +3938,28 @@ class StoryPhoneApp {
         this.ui.mount();
         globalThis.STStoryPhoneKnowledge = {
             buildContextForSpeaker: (speakerId) => new KnowledgeTimelineAuditor(this.state.value).buildContextForSpeaker(speakerId),
+            buildBasicContextForSpeaker: (speakerId, options) => this.state.buildContextForSpeaker(speakerId, options),
+            buildMainChatHiddenContext: (hostCharId) => this.state.buildMainChatHiddenContext(hostCharId),
+            getHostCharId: () => this.state.getHostCharId(),
+            normalizeSpeakerId: (input, options) => this.state.normalizeSpeakerId(input, options),
+            createPhoneEvent: (event) => this.state.createPhoneEvent(event),
+            resolveBasicKnownBy: (event) => this.state.resolveBasicKnownBy(event),
+            classifyEvent: (event) => this.state.classifyEvent(event),
+            getCurrentProfile: () => this.profileManager.getCurrentProfile(),
+            createProfileForCurrentCard: () => this.profileManager.createProfileForCurrentCard(this.collector.collect()),
+            switchProfile: (profileId) => this.profileManager.switchProfile(profileId),
+            listProfiles: () => this.profileManager.listProfiles(),
+            updateProfile: (profileId, patch) => this.profileManager.updateProfile(profileId, patch),
+            deleteProfile: (profileId) => this.profileManager.deleteProfile(profileId),
+            exportProfile: (profileId) => this.profileManager.exportProfile(profileId),
+            importProfile: (data) => this.profileManager.importProfile(data),
+            ensureProfileForCurrentCard: () => this.profileManager.ensureProfileForCurrentCard(this.collector.collect()),
+            findIdentityById: (identityId) => this.profileManager.findIdentityById(identityId),
+            findContactByIdentityId: (identityId) => this.profileManager.findContactByIdentityId(identityId),
+            findGroupById: (groupId) => this.profileManager.findGroupById(groupId),
+            getGroupMembers: (groupId) => this.profileManager.getGroupMembers(groupId),
+            getForumBoard: (boardId) => this.profileManager.getForumBoard(boardId),
+            getMomentsViewers: (config) => this.profileManager.getMomentsViewers(config),
             auditKnowledgeConsistency: (generatedContent, speakerId, context) => new KnowledgeTimelineAuditor(this.state.value).auditKnowledgeConsistency(generatedContent, speakerId, context),
             resolveVisibleContext: (speakerId) => new KnowledgeTimelineAuditor(this.state.value).resolveVisibleContext(speakerId),
             buildPromptWithVisibilityBoundary: (speakerId, taskType, payload) => new KnowledgeTimelineAuditor(this.state.value).buildPromptWithVisibilityBoundary(speakerId, taskType, payload),
