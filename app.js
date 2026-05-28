@@ -4,7 +4,7 @@ import stGetContext from '../../../st-context.js';
 
 const EXTENSION_ID = 'ST-StoryPhone';
 const EXTENSION_ALIAS = 'ST-PhoningPhone';
-const EXTENSION_VERSION = '0.4.4';
+const EXTENSION_VERSION = '0.4.5';
 const STORAGE_PREFIX = 'st_story_phone';
 
 const DEFAULT_PROFILE = {
@@ -1710,7 +1710,10 @@ class PhoneUI {
         if (this.activeApp === 'wechat') this.renderWechat(profile);
         if (this.activeApp === 'groups') this.renderGroups(profile);
         if (this.activeApp === 'moments') this.renderMoments();
+        if (this.activeApp === 'momentCompose') this.renderMomentComposer();
         if (this.activeApp === 'forum') this.renderForum(profile);
+        if (this.activeApp === 'forumCompose') this.renderForumComposer(profile);
+        if (this.activeApp === 'forumDetail') this.renderForumDetail(profile);
         if (this.activeApp === 'calendar') this.renderCalendar();
         if (this.activeApp === 'memos') this.renderMemos();
         if (this.activeApp === 'target') this.renderTargetPhone(profile);
@@ -1732,6 +1735,25 @@ class PhoneUI {
         back.addEventListener('click', () => this.setApp('home'));
         const heading = createElement('strong', '', title);
         bar.append(back, heading);
+        return bar;
+    }
+
+    navWithAction(title, actionLabel, onAction, backAction) {
+        const bar = this.nav(title);
+        const back = bar.querySelector('.stp-app-close');
+        if (backAction && back) {
+            back.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                backAction();
+            }, { capture: true });
+        }
+        if (actionLabel) {
+            const action = createElement('button', 'stp-nav-action', actionLabel);
+            action.type = 'button';
+            action.addEventListener('click', onAction);
+            bar.append(action);
+        }
         return bar;
     }
 
@@ -1789,6 +1811,21 @@ class PhoneUI {
         }
 
         if (activeTab === 'moments') {
+            const feedTools = createElement('div', 'stp-feed-toolbar');
+            const refreshBtn = createElement('button', 'stp-icon-action', '刷新');
+            const composeBtn = createElement('button', 'stp-icon-action primary', '+');
+            refreshBtn.type = 'button';
+            composeBtn.type = 'button';
+            refreshBtn.addEventListener('click', () => this.generateMoments());
+            composeBtn.addEventListener('click', () => this.setApp('momentCompose'));
+            feedTools.append(refreshBtn, composeBtn);
+            const feedList = createElement('div', 'stp-card-list stp-moments-list stp-feed-list');
+            this.state.value.phone.moments.forEach((post) => feedList.append(this.renderSocialCard(post, 'moment')));
+            if (!this.state.value.phone.moments.length) feedList.append(createElement('p', 'stp-empty', '还没有动态。点右上角 + 发一条，或刷新生成手机侧动态。'));
+            body.append(feedTools, feedList);
+            wrap.append(body, this.wechatTabs(profile));
+            this.screen.append(wrap);
+            return;
             const action = createElement('button', 'stp-wide-action wechat-refresh stp-moment-camera', '生成/刷新 · 📷');
             action.type = 'button';
             action.addEventListener('click', () => this.generateMoments());
@@ -1821,6 +1858,100 @@ class PhoneUI {
             return;
         }
 
+        const friends = asArray(profile.friends);
+        const current = friends.find((friend) => friend.id === this.selectedNpc);
+        if (!current) {
+            const listScreen = createElement('div', 'stp-wechat-list-screen');
+            listScreen.append(createElement('div', 'stp-wechat-section-title', 'Chats'));
+            friends.forEach((friend, index) => {
+                const history = asArray(this.state.value.phone.chats[friend.id]);
+                const last = history[history.length - 1] || {};
+                const item = createElement('button', 'stp-wechat-thread-row', '');
+                item.type = 'button';
+                item.innerHTML = `
+                    <span class="stp-avatar">${escapeHtml(friend.avatar || avatarText(friend.name))}</span>
+                    <span class="stp-thread-main">
+                        <b>${escapeHtml(friend.name || friend.id)}</b>
+                        <small>${escapeHtml(last.content || friend.role || '点开开始聊天')}</small>
+                    </span>
+                    <time>${index === 0 ? 'now' : ''}</time>
+                `;
+                item.addEventListener('click', () => {
+                    this.selectedNpc = friend.id;
+                    this.renderWechat(profile);
+                });
+                listScreen.append(item);
+            });
+            if (!friends.length) listScreen.append(createElement('p', 'stp-empty', '暂无好友。可在 Phone Profile 的 friends 里配置。'));
+            body.append(listScreen);
+            wrap.append(body, this.wechatTabs(profile));
+            this.screen.append(wrap);
+            return;
+        }
+
+        const chatPaneFull = createElement('div', 'stp-chat-detail');
+        const historyFull = asArray(this.state.value.phone.chats[current.id]).map((message) => {
+            if (typeof message === 'string') return { sender: 'user', content: message, at: nowIso() };
+            return { ...message, sender: message.sender === 'user' ? 'user' : 'npc', content: message.content || message.text || '' };
+        });
+        this.state.value.phone.chats[current.id] = historyFull;
+        this.state.save();
+        const headerFull = createElement('div', 'stp-chat-header');
+        const backFull = createElement('button', 'stp-chat-back', '‹');
+        backFull.type = 'button';
+        backFull.addEventListener('click', () => {
+            this.selectedNpc = null;
+            this.renderWechat(profile);
+        });
+        headerFull.innerHTML = `<span class="stp-avatar">${escapeHtml(current.avatar || avatarText(current.name))}</span><b>${escapeHtml(current.name || current.id)}</b>`;
+        headerFull.prepend(backFull);
+        const messagesFull = createElement('div', 'stp-messages');
+        historyFull.forEach((message) => {
+            const bubble = createElement('div', `stp-message ${message.sender === 'user' ? 'me' : 'npc'}`);
+            if (message.imageData || message.imageUrl) {
+                const img = createElement('img', 'stp-chat-image');
+                img.src = message.imageData || message.imageUrl;
+                img.alt = message.content || '聊天图片';
+                bubble.append(img);
+            }
+            if (message.sticker) bubble.append(createElement('div', 'stp-sticker', message.sticker));
+            if (message.content) bubble.append(createElement('span', '', message.content));
+            messagesFull.append(bubble);
+        });
+        const formFull = createElement('form', 'stp-reply-box stp-chat-input-bar');
+        formFull.innerHTML = `
+            <input name="message" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="只在手机内发送..." />
+            <label class="stp-file-button">图片<input name="image" type="file" accept="image/*" /></label>
+            <button class="stp-pixel-button" type="submit">发送</button>
+            <button class="stp-pixel-button ghost" type="button" data-generate>生成回复</button>
+        `;
+        formFull.setAttribute('autocomplete', 'off');
+        formFull.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const input = formFull.querySelector('input[name="message"]');
+            const fileInput = formFull.querySelector('input[name="image"]');
+            const text = input.value.trim();
+            let imageData = null;
+            try {
+                imageData = await fileToDataUrl(fileInput.files?.[0]);
+            } catch (error) {
+                this.showNotice(error.message);
+                return;
+            }
+            if (!text && !imageData) return;
+            this.pushChat(current, { sender: 'user', content: text, imageData, at: nowIso() });
+            input.value = '';
+            fileInput.value = '';
+            this.renderWechat(profile);
+        });
+        formFull.querySelector('[data-generate]').addEventListener('click', () => this.generateNpcReply(current));
+        chatPaneFull.append(headerFull, messagesFull, formFull);
+        body.append(chatPaneFull);
+        wrap.append(body, this.wechatTabs(profile));
+        this.screen.append(wrap);
+        return;
+
+        {
         const layout = createElement('div', 'stp-chat-layout');
         const list = createElement('div', 'stp-friend-list');
         const friends = asArray(profile.friends);
@@ -1894,6 +2025,7 @@ class PhoneUI {
         body.append(layout);
         wrap.append(body, this.wechatTabs(profile));
         this.screen.append(wrap);
+        }
     }
 
     wechatTabs(profile) {
@@ -2120,8 +2252,13 @@ class PhoneUI {
                 meta: isForum ? {} : { visibilityScope },
             });
             this.state.save();
-            if (isForum) this.renderForum(this.state.value.profile);
-            else this.renderMoments();
+            if (isForum) {
+                this.activeApp = 'forum';
+                this.renderForum(this.state.value.profile);
+            } else {
+                this.activeApp = 'moments';
+                this.renderMoments();
+            }
         });
         return form;
     }
@@ -2185,6 +2322,18 @@ class PhoneUI {
     renderMoments() {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
+        wrap.append(this.navWithAction('朋友圈', '+', () => this.setApp('momentCompose')));
+        const tools = createElement('div', 'stp-feed-toolbar');
+        const refresh = createElement('button', 'stp-icon-action', '刷新');
+        refresh.type = 'button';
+        refresh.addEventListener('click', () => this.generateMoments());
+        tools.append(refresh);
+        const feed = createElement('div', 'stp-card-list stp-moments-list stp-feed-list');
+        this.state.value.phone.moments.forEach((post) => feed.append(this.renderSocialCard(post, 'moment')));
+        if (!this.state.value.phone.moments.length) feed.append(createElement('p', 'stp-empty', '还没有朋友圈动态。右上角 + 发布，刷新可生成 NPC 动态。'));
+        wrap.append(tools, feed);
+        this.screen.append(wrap);
+        return;
         wrap.append(this.nav('朋友圈'));
         const action = createElement('button', 'stp-wide-action stp-moment-camera', '生成/刷新 · 📷');
         action.type = 'button';
@@ -2194,6 +2343,17 @@ class PhoneUI {
         this.state.value.phone.moments.forEach((post) => list.append(this.renderSocialCard(post, 'moment')));
         if (!this.state.value.phone.moments.length) list.append(createElement('p', 'stp-empty', '还没有动态。点击刷新会基于主剧情状态后台生成。'));
         wrap.append(action, composer, list);
+        this.screen.append(wrap);
+    }
+
+    renderMomentComposer() {
+        this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app stp-compose-page');
+        wrap.append(this.navWithAction('发朋友圈', '取消', () => this.setApp('moments')));
+        const header = createElement('div', 'stp-compose-hero');
+        header.innerHTML = '<b>这一刻的心情</b><small>可设置公开、仅谁可见、仅谁不可见；这里发布的内容只进入手机事件记忆。</small>';
+        const composer = this.createSocialComposerV2('moment');
+        wrap.append(header, composer);
         this.screen.append(wrap);
     }
 
@@ -2228,6 +2388,18 @@ class PhoneUI {
     renderForum(profile) {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
+        wrap.append(this.navWithAction(profile.forum?.name || '论坛', '+', () => this.setApp('forumCompose')));
+        const tools = createElement('div', 'stp-feed-toolbar');
+        const refresh = createElement('button', 'stp-icon-action', '刷新');
+        refresh.type = 'button';
+        refresh.addEventListener('click', () => this.generateForum());
+        tools.append(refresh);
+        const feed = createElement('div', 'stp-card-list stp-thread-feed stp-feed-list');
+        this.state.value.phone.forumPosts.forEach((post) => feed.append(this.renderSocialCard(post, 'forum')));
+        if (!this.state.value.phone.forumPosts.length) feed.append(createElement('p', 'stp-empty', '论坛还没有帖子。右上角 + 发帖，刷新可生成公开帖子。'));
+        wrap.append(tools, feed);
+        this.screen.append(wrap);
+        return;
         wrap.append(this.nav(profile.forum?.name || '论坛'));
         const action = createElement('button', 'stp-wide-action', '刷新论坛帖子');
         action.type = 'button';
@@ -2237,6 +2409,40 @@ class PhoneUI {
         this.state.value.phone.forumPosts.forEach((post) => list.append(this.renderSocialCard(post, 'forum')));
         if (!this.state.value.phone.forumPosts.length) list.append(createElement('p', 'stp-empty', '论坛空空的。刷新后会生成克制真实的校园帖子。'));
         wrap.append(action, composer, list);
+        this.screen.append(wrap);
+    }
+
+    renderForumComposer(profile) {
+        this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app stp-compose-page');
+        wrap.append(this.navWithAction('发布帖子', '取消', () => this.setApp('forum')));
+        const header = createElement('div', 'stp-compose-hero');
+        header.innerHTML = `<b>${escapeHtml(profile.forum?.name || '论坛')}</b><small>发帖会作为 public 手机事件写入统一 eventLog；具体 NPC 是否知道仍由可见性和习惯判断。</small>`;
+        const composer = this.createSocialComposerV2('forum');
+        wrap.append(header, composer);
+        this.screen.append(wrap);
+    }
+
+    renderForumDetail(profile) {
+        this.screen.innerHTML = '';
+        const post = asArray(this.state.value.phone.forumPosts).find((item) => item.id === this.selectedForumPost);
+        const wrap = createElement('div', 'stp-app stp-thread-detail-page');
+        wrap.append(this.navWithAction('帖子', '', () => {}, () => this.setApp('forum')));
+        if (!post) {
+            wrap.append(createElement('p', 'stp-empty', '帖子不存在或已删除。'));
+            this.screen.append(wrap);
+            return;
+        }
+        const detail = this.renderSocialCard(post, 'forum');
+        detail.classList.add('stp-thread-detail-card');
+        const replies = createElement('div', 'stp-thread-replies');
+        asArray(post.comments).forEach((reply) => {
+            const row = createElement('div', 'stp-thread-reply', '');
+            row.innerHTML = `<span class="stp-social-avatar">${escapeHtml(avatarText(reply.actor || 'U'))}</span><p><b>${escapeHtml(reply.actor || '匿名')}</b><br>${escapeHtml(reply.content || reply)}</p>`;
+            replies.append(row);
+        });
+        if (!asArray(post.comments).length) replies.append(createElement('p', 'stp-empty', '还没有回复。'));
+        wrap.append(detail, replies);
         this.screen.append(wrap);
     }
 
@@ -2274,6 +2480,20 @@ class PhoneUI {
     renderSocialCard(post, source) {
         const card = createElement('article', 'stp-social-card');
         card.classList.add(source === 'forum' ? 'stp-thread-card' : 'stp-moment-card');
+        if (source === 'forum') {
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
+            card.addEventListener('click', (event) => {
+                if (event.target.closest('button, input, label, textarea, select')) return;
+                this.selectedForumPost = post.id;
+                this.setApp('forumDetail');
+            });
+            card.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') return;
+                this.selectedForumPost = post.id;
+                this.setApp('forumDetail');
+            });
+        }
         const comments = asArray(post.comments);
         const likes = asArray(post.likes);
         const likedByUser = likes.includes('user');
