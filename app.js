@@ -4,8 +4,27 @@ import stGetContext from '../../../st-context.js';
 
 const EXTENSION_ID = 'ST-StoryPhone';
 const EXTENSION_ALIAS = 'ST-PhoningPhone';
-const EXTENSION_VERSION = '0.4.5';
+const STORYPHONE_VERSION = '0.4.7';
+const EXTENSION_VERSION = STORYPHONE_VERSION;
 const STORAGE_PREFIX = 'st_story_phone';
+const STORYPHONE_VERSION_KEY = `${STORAGE_PREFIX}:storyPhoneVersion`;
+
+console.info(`${EXTENSION_ID} runtime`, STORYPHONE_VERSION);
+
+const storyPhoneRuntimeDebug = {
+    runtimeVersion: STORYPHONE_VERSION,
+    storedVersion: null,
+    migrationRan: false,
+    cleanedKeys: [],
+    lastBootError: null,
+    lastBootStep: 'init',
+    storageReadable: false,
+    profileLoaded: false,
+    launcherMounted: false,
+    rootMounted: false,
+    modalMounted: false,
+    duplicateNodesRemoved: 0,
+};
 
 const DEFAULT_PROFILE = {
     id: 'default',
@@ -104,6 +123,45 @@ function safeJsonParse(text, fallback) {
     } catch {
         return fallback;
     }
+}
+
+function safeStorageGet(key, fallback = '') {
+    try {
+        storyPhoneRuntimeDebug.storageReadable = true;
+        const value = localStorage.getItem(key);
+        return value === null || value === undefined ? fallback : value;
+    } catch (error) {
+        storyPhoneRuntimeDebug.storageReadable = false;
+        console.warn(`${EXTENSION_ID}: localStorage get failed`, key, error);
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        storyPhoneRuntimeDebug.storageReadable = true;
+        return true;
+    } catch (error) {
+        storyPhoneRuntimeDebug.storageReadable = false;
+        console.warn(`${EXTENSION_ID}: localStorage set failed`, key, error);
+        return false;
+    }
+}
+
+function safeStorageRemove(key) {
+    try {
+        localStorage.removeItem(key);
+        storyPhoneRuntimeDebug.cleanedKeys.push(key);
+        return true;
+    } catch (error) {
+        console.warn(`${EXTENSION_ID}: localStorage remove failed`, key, error);
+        return false;
+    }
+}
+
+function safeStorageJson(key, fallback) {
+    return safeJsonParse(safeStorageGet(key, ''), fallback);
 }
 
 function clampText(text, max = 1200) {
@@ -388,7 +446,109 @@ function mountBootBubble() {
     bubble.type = 'button';
     bubble.title = 'ST-StoryPhone 正在启动';
     shieldStoryPhonePointer(bubble, () => bootStoryPhone());
+    bubble.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        bootStoryPhone();
+    }, true);
     document.body.appendChild(bubble);
+    storyPhoneRuntimeDebug.launcherMounted = true;
+}
+
+function removeStoryPhoneDomDuplicates() {
+    const selectors = [
+        '#st-storyphone-launcher',
+        '#st-storyphone-root',
+        '#st-storyphone-modal',
+        '.storyphone-launcher',
+        '.storyphone-root',
+        '.storyphone-modal',
+        '#st-story-phone-launcher',
+        '#st-story-phone-fallback',
+        '#st-story-phone-diagnostics',
+        '#st-story-phone-toast',
+        '.stp-boot-bubble',
+    ];
+    let removed = 0;
+    selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((node) => {
+            if (node.id === 'st-story-phone' && node.classList.contains('stp-phone-shell')) return;
+            node.remove();
+            removed += 1;
+        });
+    });
+    const roots = Array.from(document.querySelectorAll('#st-story-phone, .stp-phone-shell'));
+    roots.slice(1).forEach((node) => {
+        node.remove();
+        removed += 1;
+    });
+    storyPhoneRuntimeDebug.duplicateNodesRemoved += removed;
+    return removed;
+}
+
+function cleanStoryPhoneUiState(reason = 'manual') {
+    const cleaned = [];
+    const keys = [];
+    try {
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const key = localStorage.key(i);
+            if (key) keys.push(key);
+        }
+    } catch (error) {
+        storyPhoneRuntimeDebug.storageReadable = false;
+        console.warn(`${EXTENSION_ID}: cannot enumerate storage`, error);
+    }
+    const uiPatterns = [
+        /^st_story_phone_launcher_pos$/,
+        /^st_story_phone:(phone_position|launcher|layout|active|view|modal|icon|render|debug|ui)/,
+        /^st-story-phone/i,
+        /^storyphone/i,
+    ];
+    keys.forEach((key) => {
+        if (key === STORYPHONE_VERSION_KEY) return;
+        if (uiPatterns.some((pattern) => pattern.test(key))) {
+            if (safeStorageRemove(key)) cleaned.push(key);
+        }
+    });
+    keys.filter((key) => key.startsWith(`${STORAGE_PREFIX}:`)).forEach((key) => {
+        const state = safeStorageJson(key, null);
+        if (!state || typeof state !== 'object') return;
+        let changed = false;
+        if (state.settings && state.settings.minimized) {
+            state.settings.minimized = false;
+            changed = true;
+        }
+        ['activeView', 'activeApp', 'selectedTab', 'modalOpen', 'layoutState', 'launcherState', 'renderCache', 'iconState'].forEach((field) => {
+            if (field in state) {
+                delete state[field];
+                changed = true;
+            }
+        });
+        if (changed && safeStorageSet(key, JSON.stringify(state))) cleaned.push(`${key}:ui-fields`);
+    });
+    storyPhoneRuntimeDebug.cleanedKeys = uniqueArray([...storyPhoneRuntimeDebug.cleanedKeys, ...cleaned]);
+    console.info(`${EXTENSION_ID}: UI state cleaned`, { reason, cleaned });
+    return cleaned;
+}
+
+function migrateStoryPhoneStateIfNeeded() {
+    try {
+        storyPhoneRuntimeDebug.lastBootStep = 'migration';
+        const storedVersion = safeStorageGet(STORYPHONE_VERSION_KEY, '');
+        storyPhoneRuntimeDebug.storedVersion = storedVersion || null;
+        if (storedVersion !== STORYPHONE_VERSION) {
+            storyPhoneRuntimeDebug.migrationRan = true;
+            cleanStoryPhoneUiState(storedVersion ? `version ${storedVersion} -> ${STORYPHONE_VERSION}` : 'legacy version');
+            safeStorageSet(STORYPHONE_VERSION_KEY, STORYPHONE_VERSION);
+        }
+    } catch (error) {
+        storyPhoneRuntimeDebug.lastBootError = {
+            message: error.message,
+            stack: error.stack,
+        };
+        console.warn(`${EXTENSION_ID}: migration failed but boot will continue`, error);
+    }
+    return storyPhoneRuntimeDebug;
 }
 
 class StorageManager {
@@ -403,7 +563,7 @@ class StorageManager {
     load(scope, fallback) {
         const key = this.getKey(scope);
         try {
-            const raw = localStorage.getItem(key);
+            const raw = safeStorageGet(key, '');
             if (!raw) return cloneValue(fallback);
             return { ...cloneValue(fallback), ...safeJsonParse(raw, fallback) };
         } catch {
@@ -417,7 +577,7 @@ class StorageManager {
         try {
             const persisted = cloneValue(value);
             if (persisted?.settings) persisted.settings.apiKey = '';
-            localStorage.setItem(key, JSON.stringify(persisted));
+            safeStorageSet(key, JSON.stringify(persisted));
         } catch {
             // localStorage may be unavailable in hardened WebViews; in-memory storage keeps the session usable.
         }
@@ -786,9 +946,9 @@ class SharedStoryState {
                 fallbackEnabled: false,
                 injectIntoMainContext: true,
                 minimized: false,
-                apiEndpoint: localStorage.getItem('st_story_phone_api_endpoint') || '',
+                apiEndpoint: safeStorageGet('st_story_phone_api_endpoint', ''),
                 apiKey: '',
-                apiModel: localStorage.getItem('st_story_phone_api_model') || '',
+                apiModel: safeStorageGet('st_story_phone_api_model', ''),
             },
             profile: DEFAULT_PROFILE,
         };
@@ -2210,10 +2370,8 @@ class PhoneUI {
     }
 
     mount() {
-        if (document.getElementById('st-story-phone')) return;
-        document.getElementById('st-story-phone-fallback')?.remove();
-        document.getElementById('st-story-phone-launcher')?.remove();
-        document.getElementById('st-story-phone-boot-bubble')?.remove();
+        removeStoryPhoneDomDuplicates();
+        document.getElementById('st-story-phone')?.remove();
         this.root = createElement('section', 'stp-phone-shell', '');
         this.root.id = 'st-story-phone';
         this.root.innerHTML = `
@@ -2228,6 +2386,8 @@ class PhoneUI {
             <button class="stp-bubble" type="button" title="打开 StoryPhone">Phone</button>
         `;
         document.body.appendChild(this.root);
+        storyPhoneRuntimeDebug.rootMounted = true;
+        storyPhoneRuntimeDebug.modalMounted = true;
         this.screen = this.root.querySelector('.stp-screen');
         shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.toggleMinimized(true));
         this.root.querySelector('.stp-bubble').addEventListener('click', (event) => {
@@ -2235,6 +2395,12 @@ class PhoneUI {
             event.stopPropagation();
             event.stopImmediatePropagation?.();
             if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
+            this.toggleMinimized(false);
+        }, true);
+        this.root.querySelector('.stp-bubble').addEventListener('pointerdown', (event) => {
+            if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
+            event.preventDefault();
+            event.stopPropagation();
             this.toggleMinimized(false);
         }, true);
         this.bindDrag();
@@ -2247,7 +2413,7 @@ class PhoneUI {
         const shell = this.root;
         const handle = this.root.querySelector('.stp-phone-top');
         const bubble = this.root.querySelector('.stp-bubble');
-        const restore = safeJsonParse(localStorage.getItem(`${STORAGE_PREFIX}:phone_position`) || '{}', {});
+        const restore = safeStorageJson(`${STORAGE_PREFIX}:phone_position`, {});
         if (typeof restore.left === 'number' && typeof restore.top === 'number') {
             shell.style.left = `${restore.left}px`;
             shell.style.top = `${restore.top}px`;
@@ -2297,7 +2463,7 @@ class PhoneUI {
                 if (pointerId !== event.pointerId) return;
                 dragHandle.releasePointerCapture?.(pointerId);
                 pointerId = null;
-                localStorage.setItem(`${STORAGE_PREFIX}:phone_position`, JSON.stringify({
+                safeStorageSet(`${STORAGE_PREFIX}:phone_position`, JSON.stringify({
                     left: parseInt(shell.style.left, 10) || 22,
                     top: parseInt(shell.style.top, 10) || 86,
                 }));
@@ -3478,6 +3644,12 @@ class PhoneUI {
         const entryMatch = new PhoneEntryManager(this.state).getRelevantPhoneEntries({ taskType: 'debug', speakerId: hostCharId, appType: 'debug' });
         const loreMatch = new MainLorebookLinker(this.state, this.collector).getRelevantMainLore({ taskType: 'debug', speakerId: hostCharId, matchedPhoneEntries: entryMatch.entries });
         const summary = createElement('pre', 'stp-debug-pre', JSON.stringify({
+            boot: {
+                ...bootSelfCheck(),
+                runtimeVersion: STORYPHONE_VERSION,
+                storedVersion: storyPhoneRuntimeDebug.storedVersion,
+                lastBootStep: storyPhoneRuntimeDebug.lastBootStep,
+            },
             identity: {
                 hostCharId,
                 currentSpeakerId: this.state.value.debug?.lastIdentityContext?.speakerId || '',
@@ -3857,6 +4029,7 @@ class PhoneUI {
                 <button class="stp-pixel-button ghost" type="button" data-profile-action="add-board">新增论坛板块</button>
                 <button class="stp-pixel-button ghost" type="button" data-profile-action="moments">朋友圈设置</button>
                 <button class="stp-pixel-button ghost" type="button" data-profile-action="rebuild">重建当前卡 Profile</button>
+                <button class="stp-pixel-button ghost" type="button" data-force-ui-reset>强制重置 StoryPhone UI 状态</button>
             </div>
             <label><input type="checkbox" data-setting="injectIntoMainContext" ${settings.injectIntoMainContext ? 'checked' : ''}> 手机事件隐藏摘要同步到主对话</label>
             <label><input type="checkbox" data-setting="fallbackEnabled" ${settings.fallbackEnabled ? 'checked' : ''}> 开启本地 fallback（默认关闭）</label>
@@ -3873,6 +4046,9 @@ class PhoneUI {
         panel.querySelectorAll('[data-profile-action]').forEach((button) => {
             button.addEventListener('click', () => this.handleProfileAction(button.dataset.profileAction));
         });
+        panel.querySelector('[data-force-ui-reset]')?.addEventListener('click', () => {
+            forceResetStoryPhoneUiState();
+        });
         panel.querySelectorAll('[data-setting]').forEach((input) => {
             input.addEventListener('change', () => {
                 this.state.value.settings[input.dataset.setting] = input.checked;
@@ -3883,8 +4059,8 @@ class PhoneUI {
             settings.apiEndpoint = panel.querySelector('[data-api="endpoint"]').value.trim();
             settings.apiKey = panel.querySelector('[data-api="key"]').value.trim();
             settings.apiModel = panel.querySelector('[data-api="model"]').value.trim();
-            localStorage.setItem('st_story_phone_api_endpoint', settings.apiEndpoint);
-            localStorage.setItem('st_story_phone_api_model', settings.apiModel);
+            safeStorageSet('st_story_phone_api_endpoint', settings.apiEndpoint);
+            safeStorageSet('st_story_phone_api_model', settings.apiModel);
             this.state.save();
             this.showNotice(settings.apiEndpoint ? 'API 设置已保存' : 'API 已关闭');
         });
@@ -4003,10 +4179,16 @@ class StoryPhoneApp {
     }
 
     start() {
+        storyPhoneRuntimeDebug.lastBootStep = 'profile';
         this.profileManager.resolve(this.collector.collect());
+        storyPhoneRuntimeDebug.profileLoaded = Boolean(this.profileManager.getCurrentProfile?.());
+        storyPhoneRuntimeDebug.lastBootStep = 'injector';
         this.injector.attach();
+        storyPhoneRuntimeDebug.lastBootStep = 'observer';
         this.mainChatObserver.attach();
+        storyPhoneRuntimeDebug.lastBootStep = 'ui_mount';
         this.ui.mount();
+        storyPhoneRuntimeDebug.lastBootStep = 'debug_api';
         globalThis.STStoryPhoneKnowledge = {
             buildContextForSpeaker: (speakerId) => new KnowledgeTimelineAuditor(this.state.value).buildContextForSpeaker(speakerId),
             buildBasicContextForSpeaker: (speakerId, options) => this.state.buildContextForSpeaker(speakerId, options),
@@ -4046,22 +4228,97 @@ class StoryPhoneApp {
     }
 }
 
+function bootSelfCheck() {
+    const viewport = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        visualWidth: window.visualViewport?.width || null,
+        visualHeight: window.visualViewport?.height || null,
+    };
+    return {
+        runtimeVersion: STORYPHONE_VERSION,
+        storedVersion: storyPhoneRuntimeDebug.storedVersion,
+        migrationRan: storyPhoneRuntimeDebug.migrationRan,
+        cleanedKeys: storyPhoneRuntimeDebug.cleanedKeys,
+        storageReadable: storyPhoneRuntimeDebug.storageReadable,
+        profileLoaded: storyPhoneRuntimeDebug.profileLoaded,
+        launcherMounted: Boolean(document.getElementById('st-story-phone-boot-bubble') || document.querySelector('#st-story-phone .stp-bubble')),
+        rootMounted: Boolean(document.getElementById('st-story-phone')),
+        modalMounted: Boolean(document.querySelector('#st-story-phone .stp-phone')),
+        duplicateNodesRemoved: storyPhoneRuntimeDebug.duplicateNodesRemoved,
+        isMobileViewport: window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
+        viewport,
+        lastBootError: storyPhoneRuntimeDebug.lastBootError,
+    };
+}
+
+function forceResetStoryPhoneUiState() {
+    cleanStoryPhoneUiState('force reset');
+    removeStoryPhoneDomDuplicates();
+    document.getElementById('st-story-phone')?.remove();
+    document.getElementById('st-story-phone-boot-error')?.remove();
+    globalThis.__STStoryPhoneApp = null;
+    mountBootBubble();
+    bootStoryPhone();
+    const app = globalThis.__STStoryPhoneApp;
+    app?.ui?.showNotice?.('已重置 UI 状态，业务数据已保留。');
+    return bootSelfCheck();
+}
+
+function showStoryPhoneBootErrorPanel(error) {
+    document.getElementById('st-story-phone-boot-error')?.remove();
+    const currentProfileId = globalThis.__STStoryPhoneApp?.state?.value?.currentProfileId || null;
+    const diagnostics = {
+        ...bootSelfCheck(),
+        STORYPHONE_VERSION,
+        currentProfileId,
+        lastBootStep: storyPhoneRuntimeDebug.lastBootStep,
+        userAgent: navigator.userAgent,
+        errorMessage: error?.message || '',
+        errorStack: error?.stack || '',
+    };
+    const panel = createElement('section', 'stp-boot-error', '');
+    panel.id = 'st-story-phone-boot-error';
+    panel.innerHTML = `
+        <h2>ST-StoryPhone boot failed</h2>
+        <pre>${escapeHtml(JSON.stringify(diagnostics, null, 2))}</pre>
+        <div class="stp-inline-actions">
+            <button type="button" data-copy>复制诊断信息</button>
+            <button type="button" data-reset>强制重置 UI 状态</button>
+        </div>
+    `;
+    panel.querySelector('[data-copy]').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard?.writeText(JSON.stringify(diagnostics, null, 2));
+        } catch {
+            console.info(`${EXTENSION_ID} diagnostics`, diagnostics);
+        }
+    });
+    panel.querySelector('[data-reset]').addEventListener('click', () => forceResetStoryPhoneUiState());
+    document.body.appendChild(panel);
+}
+
 function bootStoryPhone() {
     if (globalThis.__STStoryPhoneApp) return;
     try {
+        storyPhoneRuntimeDebug.lastBootStep = 'boot';
+        migrateStoryPhoneStateIfNeeded();
+        removeStoryPhoneDomDuplicates();
         mountBootBubble();
         globalThis.__STStoryPhoneApp = new StoryPhoneApp();
         globalThis.__STStoryPhoneApp.start();
         document.getElementById('st-story-phone-boot-bubble')?.remove();
+        storyPhoneRuntimeDebug.lastBootStep = 'ready';
     } catch (error) {
         globalThis.__STStoryPhoneApp = null;
+        storyPhoneRuntimeDebug.lastBootError = { message: error.message, stack: error.stack };
         console.error('ST-StoryPhone boot failed', error);
         const bubble = document.getElementById('st-story-phone-boot-bubble');
         if (bubble) {
             bubble.textContent = 'Phone!';
             bubble.title = `ST-StoryPhone 启动失败：${error.message}`;
         }
-        throw error;
+        showStoryPhoneBootErrorPanel(error);
     }
 }
 
@@ -4088,18 +4345,23 @@ function scheduleStoryPhoneBoot() {
 
 globalThis.STStoryPhoneDebug = {
     boot: bootStoryPhone,
-    resetUi: () => {
-        document.getElementById('st-story-phone')?.remove();
-        globalThis.__STStoryPhoneApp = null;
-        bootStoryPhone();
-    },
+    resetUi: forceResetStoryPhoneUiState,
+    bootSelfCheck,
+    runtimeDebug: storyPhoneRuntimeDebug,
     state: () => globalThis.__STStoryPhoneApp?.state?.value || null,
 };
 
+migrateStoryPhoneStateIfNeeded();
 scheduleStoryPhoneBoot();
 
 globalThis.STStoryPhoneOnClean = async function STStoryPhoneOnClean() {
-    Object.keys(localStorage)
+    let keys = [];
+    try {
+        keys = Object.keys(localStorage);
+    } catch (error) {
+        console.warn(`${EXTENSION_ID}: cleanup storage enumeration failed`, error);
+    }
+    keys
         .filter((key) => key.startsWith(`${STORAGE_PREFIX}:`))
-        .forEach((key) => localStorage.removeItem(key));
+        .forEach((key) => safeStorageRemove(key));
 };

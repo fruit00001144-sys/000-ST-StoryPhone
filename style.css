@@ -16,6 +16,62 @@
     font-family: Inter, "Trebuchet MS", Arial, sans-serif;
 }
 
+.stp-boot-error {
+    position: fixed;
+    inset: 6px;
+    z-index: 2147483647;
+    max-width: calc(100vw - 12px);
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px;
+    box-sizing: border-box;
+    border: 3px solid #24314f;
+    border-radius: 12px;
+    background: #fff;
+    color: #111;
+    font-family: Arial, sans-serif;
+}
+
+.stp-boot-error pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+}
+
+.stp-phone-shell {
+    z-index: 2147483646;
+}
+
+.stp-phone-shell:not(.stp-is-minimized) {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    max-width: calc(100vw - 12px);
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+}
+
+.stp-phone-shell:not(.stp-is-minimized) .stp-phone {
+    width: min(calc(100vw - 12px), 760px);
+    height: min(calc(100vh - 12px), 820px);
+    height: min(calc(100dvh - 12px), 820px);
+    max-width: calc(100vw - 12px);
+    max-height: calc(100vh - 12px);
+    max-height: calc(100dvh - 12px);
+}
+
+.stp-screen,
+.stp-app,
+.stp-card-list,
+.stp-messages {
+    -webkit-overflow-scrolling: touch;
+}
+
 .stp-phone {
     border: 6px solid rgba(231, 241, 247, 0.98);
     border-radius: 42px;
@@ -1925,4 +1981,50 @@
     justify-content: flex-start;
     gap: 8px;
     color: #777;
+}
+/* StoryPhone runtime override is intentionally duplicated at EOF. */
+#st-story-phone.stp-phone-shell {
+    position: fixed !important;
+    z-index: 2147483646 !important;
+}
+
+#st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
+    inset: 50% auto auto 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: min(calc(100vw - 12px), 760px) !important;
+    height: min(calc(100vh - 12px), 820px) !important;
+    max-width: calc(100vw - 12px) !important;
+    max-height: calc(100vh - 12px) !important;
+    transform: translate(-50%, -50%) !important;
+}
+
+@supports (height: 100dvh) {
+    #st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
+        height: min(calc(100dvh - 12px), 820px) !important;
+        max-height: calc(100dvh - 12px) !important;
+    }
+}
+
+#st-story-phone.stp-phone-shell:not(.stp-is-minimized) .stp-phone {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: calc(100vw - 12px) !important;
+    max-height: calc(100vh - 12px) !important;
+    overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+    #st-story-phone.stp-phone-shell:not(.stp-is-minimized) .stp-phone {
+        max-height: calc(100dvh - 12px) !important;
+    }
+}
+
+#st-story-phone .stp-screen,
+#st-story-phone .stp-panel,
+#st-story-phone .stp-settings-body,
+#st-story-phone .stp-debug-panel,
+#st-story-phone .stp-wechat-list-screen,
+#st-story-phone .stp-feed-list {
+    -webkit-overflow-scrolling: touch;
 }

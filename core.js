@@ -2,6 +2,25 @@ import { generateQuiet, getCurrentCharacterSummary, getPersonaSummary, getRecent
 
 const STORAGE_KEY = 'st_story_phone_v2_state';
 
+function safeStorageGet(key, fallback = '') {
+    try {
+        return localStorage.getItem(key) ?? fallback;
+    } catch (error) {
+        console.warn('ST-StoryPhone: localStorage get failed', key, error);
+        return fallback;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch (error) {
+        console.warn('ST-StoryPhone: localStorage set failed', key, error);
+        return false;
+    }
+}
+
 function tryParseJson(text, fallback) {
     try {
         return JSON.parse(text);
@@ -56,9 +75,9 @@ export function createDefaultState() {
         knowledgeGraph: [],
         phoneEvents: [],
         settings: {
-            apiEndpoint: localStorage.getItem('st_story_phone_api_endpoint') || '',
+            apiEndpoint: safeStorageGet('st_story_phone_api_endpoint', ''),
             apiKey: '',
-            apiModel: localStorage.getItem('st_story_phone_api_model') || '',
+            apiModel: safeStorageGet('st_story_phone_api_model', ''),
             fallbackEnabled: false,
             injectIntoMainContext: true,
         },
@@ -99,7 +118,7 @@ export class StoryPhoneCore {
     load() {
         try {
             const defaults = createDefaultState();
-            const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {};
+            const stored = tryParseJson(safeStorageGet(STORAGE_KEY, 'null'), {}) || {};
             return {
                 ...defaults,
                 ...stored,
@@ -115,7 +134,7 @@ export class StoryPhoneCore {
     save() {
         const persisted = JSON.parse(JSON.stringify(this.state));
         if (persisted?.settings) persisted.settings.apiKey = '';
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+        safeStorageSet(STORAGE_KEY, JSON.stringify(persisted));
     }
 
     syncProfile() {
@@ -337,14 +356,14 @@ export class StoryPhoneCore {
         this.state.settings.apiEndpoint = endpoint || '';
         this.state.settings.apiKey = key || '';
         this.state.settings.apiModel = model || '';
-        localStorage.setItem('st_story_phone_api_endpoint', this.state.settings.apiEndpoint);
-        localStorage.setItem('st_story_phone_api_model', this.state.settings.apiModel);
+        safeStorageSet('st_story_phone_api_endpoint', this.state.settings.apiEndpoint);
+        safeStorageSet('st_story_phone_api_model', this.state.settings.apiModel);
         this.save();
     }
 
     setApiEndpoint(endpoint) {
         this.state.settings.apiEndpoint = endpoint;
-        localStorage.setItem('st_story_phone_api_endpoint', endpoint);
+        safeStorageSet('st_story_phone_api_endpoint', endpoint);
         this.save();
     }
 }

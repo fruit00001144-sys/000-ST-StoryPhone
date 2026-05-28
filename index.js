@@ -2,13 +2,51 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var EXTENSION_VERSION = '0.4.5';
+    var STORYPHONE_VERSION = '0.4.7';
+    var EXTENSION_VERSION = STORYPHONE_VERSION;
     var MODULE_BASE = new URL('.', import.meta.url).href;
     var APP_SCRIPT = new URL('app.js', MODULE_BASE).href;
     var CORE_SCRIPT = new URL('core.js', MODULE_BASE).href;
     var BRIDGE_SCRIPT = new URL('st-bridge.js', MODULE_BASE).href;
     var corePromise = null;
     var coreInstance = null;
+
+    function safeStorageGet(key, fallback) {
+        try {
+            return localStorage.getItem(key) ?? fallback;
+        } catch (error) {
+            console.warn('ST-StoryPhone launcher storage get failed', key, error);
+            return fallback;
+        }
+    }
+
+    function safeStorageSet(key, value) {
+        try {
+            localStorage.setItem(key, value);
+            return true;
+        } catch (error) {
+            console.warn('ST-StoryPhone launcher storage set failed', key, error);
+            return false;
+        }
+    }
+
+    function removeLegacyDom() {
+        [
+            '#st-story-phone-launcher',
+            '#st-story-phone-fallback',
+            '#st-story-phone-diagnostics',
+            '#st-storyphone-launcher',
+            '#st-storyphone-root',
+            '#st-storyphone-modal',
+            '.storyphone-launcher',
+            '.storyphone-root',
+            '.storyphone-modal',
+        ].forEach(function (selector) {
+            document.querySelectorAll(selector).forEach(function (node) {
+                node.remove();
+            });
+        });
+    }
 
     function getCore() {
         if (coreInstance) return Promise.resolve(coreInstance);
@@ -41,7 +79,7 @@
         }
         var saved = {};
         try {
-            saved = JSON.parse(localStorage.getItem('st_story_phone_launcher_pos') || '{}');
+            saved = JSON.parse(safeStorageGet('st_story_phone_launcher_pos', '{}') || '{}');
         } catch (_) {
             saved = {};
         }
@@ -110,7 +148,7 @@
 
         function savePosition() {
             try {
-                localStorage.setItem('st_story_phone_launcher_pos', JSON.stringify({
+                safeStorageSet('st_story_phone_launcher_pos', JSON.stringify({
                     left: parseInt(element.style.left, 10) || 18,
                     top: parseInt(element.style.top, 10) || 120,
                 }));
@@ -444,7 +482,7 @@
     }
 
     function getApiConfigured() {
-        return Boolean(localStorage.getItem('st_story_phone_api_endpoint'));
+        return Boolean(safeStorageGet('st_story_phone_api_endpoint', ''));
     }
 
     function normalizeChatHistory(history) {
@@ -544,9 +582,9 @@
         var saveApi = document.getElementById('st-story-phone-api-save');
         var testApi = document.getElementById('st-story-phone-api-test');
         var apiStatus = document.getElementById('st-story-phone-api-status');
-        if (endpointInput) endpointInput.value = localStorage.getItem('st_story_phone_api_endpoint') || '';
+        if (endpointInput) endpointInput.value = safeStorageGet('st_story_phone_api_endpoint', '');
         if (keyInput) keyInput.value = '';
-        if (modelInput) modelInput.value = localStorage.getItem('st_story_phone_api_model') || '';
+        if (modelInput) modelInput.value = safeStorageGet('st_story_phone_api_model', '');
         if (saveApi) {
             saveApi.addEventListener('click', function () {
                 var settings = {
@@ -554,8 +592,8 @@
                     key: keyInput.value.trim(),
                     model: modelInput.value.trim(),
                 };
-                localStorage.setItem('st_story_phone_api_endpoint', settings.endpoint);
-                localStorage.setItem('st_story_phone_api_model', settings.model);
+                safeStorageSet('st_story_phone_api_endpoint', settings.endpoint);
+                safeStorageSet('st_story_phone_api_model', settings.model);
                 getCore().then(function (core) {
                     if (core?.setApiSettings) core.setApiSettings(settings);
                 });
@@ -609,6 +647,7 @@
     }
 
     function loadFullApp() {
+        removeLegacyDom();
         if (window.__STStoryPhoneAppLoaded) {
             if (window.STStoryPhoneDebug && window.STStoryPhoneDebug.resetUi) {
                 window.STStoryPhoneDebug.resetUi();
@@ -657,7 +696,11 @@
                 openPhone();
             }
         }, true);
-        makeBubble();
+        removeLegacyDom();
+        loadFullApp();
+        setTimeout(function () {
+            if (!document.getElementById('st-story-phone') && !window.__STStoryPhoneAppLoaded) makeBubble();
+        }, 1500);
         try {
             mountDiagnosticsPanel();
             setInterval(mountDiagnosticsPanel, 2000);
