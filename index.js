@@ -2,7 +2,7 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var EXTENSION_VERSION = '0.3.4';
+    var EXTENSION_VERSION = '0.4.1';
     var MODULE_BASE = new URL('.', import.meta.url).href;
     var APP_SCRIPT = new URL('app.js', MODULE_BASE).href;
     var CORE_SCRIPT = new URL('core.js', MODULE_BASE).href;
@@ -82,6 +82,7 @@
         function openFromEvent(event) {
             event.preventDefault();
             event.stopPropagation();
+            event.stopImmediatePropagation?.();
             if (button.__stpSuppressClick) {
                 button.__stpSuppressClick = false;
                 return;
@@ -127,6 +128,8 @@
             startTop = element.offsetTop;
             element.setPointerCapture?.(pointerId);
             event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
         }
 
         function onPointerMove(event) {
@@ -140,6 +143,7 @@
             element.style.left = clamp(startLeft + dx, 4, maxLeft) + 'px';
             element.style.top = clamp(startTop + dy, 54, maxTop) + 'px';
             event.preventDefault();
+            event.stopPropagation();
         }
 
         function onPointerUp(event) {
@@ -155,6 +159,7 @@
                 }, 0);
             }
             event.preventDefault();
+            event.stopPropagation();
         }
 
         element.addEventListener('pointerdown', onPointerDown);

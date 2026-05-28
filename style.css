@@ -9,6 +9,318 @@
     --stp-line: rgba(36, 49, 79, 0.16);
 }
 
+/* 0.4.1 visual refresh: Phoning-inspired shell, WeChat moments, Threads-like forum. */
+.stp-phone-shell {
+    --stp-ink: #111318;
+    --stp-line: rgba(17, 19, 24, 0.12);
+    font-family: Inter, "Trebuchet MS", Arial, sans-serif;
+}
+
+.stp-phone {
+    border: 6px solid rgba(231, 241, 247, 0.98);
+    border-radius: 42px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.1)),
+        linear-gradient(135deg, #d9efff 0%, #fff7fb 48%, #d6f7ff 100%);
+    box-shadow:
+        0 26px 70px rgba(49, 82, 120, 0.3),
+        inset 0 0 0 2px rgba(255, 255, 255, 0.78),
+        inset 0 -20px 35px rgba(94, 132, 158, 0.16);
+}
+
+.stp-phone-top {
+    height: 48px;
+    color: #111;
+    letter-spacing: 0;
+    font-weight: 900;
+}
+
+.stp-camera {
+    width: 92px;
+    height: 26px;
+    background: linear-gradient(180deg, #ecf3f5, #b9c6cc);
+    border: 2px solid rgba(17, 19, 24, 0.16);
+    box-shadow: inset 18px 0 18px rgba(255, 255, 255, 0.68);
+}
+
+.stp-screen {
+    height: calc(100% - 48px);
+    border: 0;
+    border-radius: 30px;
+    background:
+        radial-gradient(circle at 16px 16px, rgba(130, 180, 205, 0.18) 1.5px, transparent 2px),
+        linear-gradient(180deg, #f9fdff 0%, #fff8fc 58%, #f2fbff 100%);
+    background-size: 18px 18px, auto;
+    color: #111318;
+}
+
+.stp-home-hero {
+    position: relative;
+    min-height: 238px;
+    border: 0;
+    border-radius: 0;
+    padding: 20px 16px 10px;
+    background:
+        radial-gradient(circle at 78% 17%, rgba(255, 255, 255, 0.95) 0 28px, transparent 29px),
+        radial-gradient(circle at 28% 34%, rgba(255, 255, 255, 0.9) 0 46px, transparent 47px),
+        linear-gradient(180deg, #91c2ff 0%, #d9efff 72%, rgba(255,255,255,0) 100%);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.stp-home-hero::before {
+    content: "STORY";
+    position: absolute;
+    right: 18px;
+    top: 22px;
+    padding: 8px 16px;
+    border: 2px solid #111;
+    border-radius: 999px;
+    background: #efffd0;
+    color: #111;
+    font: 900 18px Georgia, serif;
+    transform: rotate(-9deg);
+}
+
+.stp-home-hero::after {
+    content: "";
+    position: absolute;
+    left: 24px;
+    bottom: 18px;
+    width: 170px;
+    height: 108px;
+    border: 2px solid #111;
+    border-radius: 55% 45% 50% 50%;
+    background:
+        linear-gradient(135deg, transparent 0 44%, rgba(17,17,17,0.9) 45% 46%, transparent 47%),
+        linear-gradient(180deg, rgba(255,255,255,0.85), rgba(216,241,255,0.9));
+    opacity: 0.7;
+}
+
+.stp-logo {
+    position: relative;
+    z-index: 1;
+    margin-top: 58px;
+    color: #fff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 44px;
+    line-height: 0.86;
+    letter-spacing: 0;
+    text-shadow: -2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111, 0 5px 0 #55b9ee;
+}
+
+.stp-subtitle,
+.stp-time {
+    position: relative;
+    z-index: 1;
+    color: #111;
+}
+
+.stp-app-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 16px;
+    margin-top: 18px;
+    padding: 0 8px 22px;
+}
+
+.stp-app-icon {
+    min-height: 78px;
+    border: 2px solid #111;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: 5px 5px 0 rgba(68, 197, 235, 0.55);
+}
+
+.stp-app-icon span {
+    width: 46px;
+    height: 40px;
+    margin-bottom: 8px;
+    border: 2px solid #111;
+    border-radius: 0;
+    padding: 4px 0 0;
+    background: linear-gradient(180deg, #ffffff, #bdefff);
+    color: #111;
+    font-size: 13px;
+    line-height: 32px;
+}
+
+.stp-app-icon b {
+    color: #111;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.stp-wechat-app,
+.stp-app {
+    background: #fff;
+}
+
+.stp-nav {
+    min-height: 48px;
+    border-bottom: 1px solid #ededed;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.stp-nav strong {
+    font-size: 19px;
+    font-weight: 900;
+}
+
+.stp-wechat-row,
+.stp-friend {
+    border-bottom: 1px solid #ececec;
+    background: #fff;
+}
+
+.stp-wechat-row .stp-avatar,
+.stp-friend .stp-avatar,
+.stp-social-avatar {
+    border: 3px solid #97e02e;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #eef7ff, #e7ffd8);
+    color: #111;
+    font-weight: 900;
+}
+
+.stp-chat-pane {
+    background: #fff;
+}
+
+.stp-messages {
+    background: linear-gradient(180deg, #fff, #fffdf0);
+}
+
+.stp-message {
+    border-radius: 18px;
+    box-shadow: none;
+}
+
+.stp-message.me {
+    background: #d9ff75;
+    color: #111;
+}
+
+.stp-message.npc {
+    background: #f2f2f2;
+    color: #111;
+}
+
+.stp-social-composer-v2 {
+    margin: 0;
+    border: 0;
+    border-bottom: 8px solid #f6f6f6;
+    border-radius: 0;
+    padding: 12px 14px;
+    background: #fff;
+}
+
+.stp-social-composer-v2 input,
+.stp-social-composer-v2 textarea,
+.stp-social-composer-v2 select {
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-visibility-panel {
+    display: grid;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.stp-visibility-panel > label {
+    display: grid;
+    gap: 4px;
+    font-weight: 900;
+}
+
+.stp-target-picker {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.stp-target-picker label {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid #e5e5e5;
+    border-radius: 999px;
+    padding: 5px 8px;
+    background: #fafafa;
+    white-space: nowrap;
+}
+
+.stp-moment-camera {
+    border: 0;
+    border-bottom: 1px solid #e9e9e9;
+    border-radius: 0;
+    background: #fff;
+    color: #111;
+    box-shadow: none;
+    text-align: right;
+}
+
+.stp-moment-card {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-moment-card .stp-card-meta,
+.stp-moment-card h3,
+.stp-moment-card p,
+.stp-moment-card .stp-social-image,
+.stp-moment-card .stp-chip-row,
+.stp-moment-card .stp-inline-actions,
+.stp-moment-card .stp-comment-list {
+    grid-column: 2;
+}
+
+.stp-moment-card .stp-card-meta {
+    display: grid;
+    grid-template-columns: 0 1fr auto;
+    gap: 0;
+}
+
+.stp-moment-card .stp-social-avatar {
+    grid-column: 1;
+    transform: translateX(-54px);
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+}
+
+.stp-thread-card {
+    border: 0;
+    border-bottom: 1px solid #ededed;
+    border-radius: 0;
+    background: #fff;
+    padding: 16px 14px;
+}
+
+.stp-thread-card .stp-card-meta {
+    justify-content: flex-start;
+}
+
+.stp-thread-card p {
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+.stp-chip-row span {
+    background: #f3f3f3;
+    color: #555;
+}
+
 .stp-phone-shell {
     position: fixed;
     right: 22px;
@@ -680,6 +992,21 @@
     font-weight: 800;
 }
 
+.stp-debug-pre {
+    margin: 0;
+    padding: 12px;
+    max-height: 360px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 2px solid var(--stp-line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--stp-ink);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
 .stp-loading {
     min-height: 100%;
     display: grid;
@@ -738,4 +1065,195 @@
     .stp-friend {
         min-width: 106px;
     }
+}
+
+/* 0.4.1 final overrides: keep these after the legacy rules. */
+.stp-phone-shell {
+    --stp-ink: #111318;
+    --stp-line: rgba(17, 19, 24, 0.12);
+    font-family: Inter, "Trebuchet MS", Arial, sans-serif;
+}
+
+.stp-phone {
+    border: 6px solid rgba(231, 241, 247, 0.98);
+    border-radius: 42px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.1)),
+        linear-gradient(135deg, #d9efff 0%, #fff7fb 48%, #d6f7ff 100%);
+    box-shadow: 0 26px 70px rgba(49, 82, 120, 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.78);
+}
+
+.stp-screen {
+    border: 0;
+    border-radius: 30px;
+    background:
+        radial-gradient(circle at 16px 16px, rgba(130, 180, 205, 0.18) 1.5px, transparent 2px),
+        linear-gradient(180deg, #f9fdff 0%, #fff8fc 58%, #f2fbff 100%);
+    background-size: 18px 18px, auto;
+}
+
+.stp-home-hero {
+    position: relative;
+    min-height: 238px;
+    border: 0;
+    border-radius: 0;
+    background:
+        radial-gradient(circle at 78% 17%, rgba(255, 255, 255, 0.95) 0 28px, transparent 29px),
+        radial-gradient(circle at 28% 34%, rgba(255, 255, 255, 0.9) 0 46px, transparent 47px),
+        linear-gradient(180deg, #91c2ff 0%, #d9efff 72%, rgba(255,255,255,0) 100%);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.stp-logo {
+    margin-top: 58px;
+    color: #fff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 44px;
+    line-height: 0.86;
+    letter-spacing: 0;
+    text-shadow: -2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111, 0 5px 0 #55b9ee;
+}
+
+.stp-app-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 16px;
+    padding: 0 8px 22px;
+}
+
+.stp-app-icon {
+    border: 2px solid #111;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: 5px 5px 0 rgba(68, 197, 235, 0.55);
+}
+
+.stp-app-icon span {
+    border: 2px solid #111;
+    border-radius: 0;
+    background: linear-gradient(180deg, #ffffff, #bdefff);
+    color: #111;
+    font-size: 13px;
+}
+
+.stp-wechat-app,
+.stp-app {
+    background: #fff;
+}
+
+.stp-nav {
+    border-bottom: 1px solid #ededed;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.stp-wechat-row .stp-avatar,
+.stp-friend .stp-avatar,
+.stp-social-avatar {
+    border: 3px solid #97e02e;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #eef7ff, #e7ffd8);
+    color: #111;
+    font-weight: 900;
+}
+
+.stp-message.me {
+    background: #d9ff75;
+    color: #111;
+}
+
+.stp-message.npc {
+    background: #f2f2f2;
+    color: #111;
+}
+
+.stp-social-composer-v2 {
+    margin: 0;
+    border: 0;
+    border-bottom: 8px solid #f6f6f6;
+    border-radius: 0;
+    padding: 12px 14px;
+    background: #fff;
+}
+
+.stp-social-composer-v2 input,
+.stp-social-composer-v2 textarea,
+.stp-social-composer-v2 select {
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-visibility-panel {
+    display: grid;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.stp-target-picker {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+}
+
+.stp-target-picker label {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid #e5e5e5;
+    border-radius: 999px;
+    padding: 5px 8px;
+    background: #fafafa;
+    white-space: nowrap;
+}
+
+.stp-moment-camera {
+    border: 0;
+    border-bottom: 1px solid #e9e9e9;
+    border-radius: 0;
+    background: #fff;
+    color: #111;
+    box-shadow: none;
+    text-align: right;
+}
+
+.stp-moment-card {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1px solid #eee;
+    border-radius: 0;
+    background: #fff;
+}
+
+.stp-moment-card .stp-card-meta,
+.stp-moment-card h3,
+.stp-moment-card p,
+.stp-moment-card .stp-social-image,
+.stp-moment-card .stp-chip-row,
+.stp-moment-card .stp-inline-actions,
+.stp-moment-card .stp-comment-list {
+    grid-column: 2;
+}
+
+.stp-moment-card .stp-social-avatar {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+}
+
+.stp-thread-card {
+    border: 0;
+    border-bottom: 1px solid #ededed;
+    border-radius: 0;
+    background: #fff;
+    padding: 16px 14px;
+}
+
+.stp-thread-card p {
+    font-size: 15px;
+    line-height: 1.55;
 }

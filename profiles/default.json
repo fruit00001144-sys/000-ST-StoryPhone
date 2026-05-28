@@ -15,19 +15,31 @@
       "id": "best_friend",
       "name": "好友",
       "role": "普通好友",
+      "avatar": "BF",
       "visibility": "public",
       "knows": [],
       "doesNotKnow": [],
-      "relations": []
+      "relations": [],
+      "channels": ["wechat", "moments"]
     },
     {
       "id": "classmate",
       "name": "同学",
       "role": "同班同学",
+      "avatar": "CM",
       "visibility": "public",
       "knows": [],
       "doesNotKnow": [],
-      "relations": []
+      "relations": [],
+      "channels": ["wechat", "forum"]
+    }
+  ],
+  "groups": [
+    {
+      "id": "default_group",
+      "name": "朋友小群",
+      "members": ["user", "char", "best_friend"],
+      "rules": ["群聊内容只对群成员可见，截图或转发必须生成新的传播事件"]
     }
   ],
   "publicChannels": [
@@ -56,6 +68,30 @@
     "forumPosts": "public",
     "moments": "public",
     "npcChats": "visible_to_npc",
-    "targetPhone": "visible_to_char"
-  }
+    "groupChats": "visible_to_group",
+    "targetPhone": "visible_to_char",
+    "characterSideScreen": "char_private"
+  },
+  "phoneEntries": [
+    {
+      "id": "default_phone_style",
+      "title": "通用手机语气",
+      "type": "custom",
+      "enabled": true,
+      "priority": 0,
+      "linkedTargets": {
+        "characters": [],
+        "npcs": [],
+        "groups": [],
+        "apps": [],
+        "forumBoards": [],
+        "relationshipStages": [],
+        "tags": []
+      },
+      "linkedLorebookEntries": [],
+      "triggerKeywords": [],
+      "content": "手机侧内容保持真实克制，遵守可见性边界，不让角色全知全能。",
+      "notes": ""
+    }
+  ]
 }

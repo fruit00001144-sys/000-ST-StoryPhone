@@ -16,6 +16,9 @@ const DEFAULT_PROFILE = {
         { id: 'best_friend', name: '好友', role: '普通好友', visibility: 'public', knows: [], doesNotKnow: [], relations: [] },
         { id: 'classmate', name: '同学', role: '同班同学', visibility: 'public', knows: [], doesNotKnow: [], relations: [] },
     ],
+    groups: [
+        { id: 'default_group', name: '朋友小群', members: ['user', 'char', 'best_friend'], rules: [] },
+    ],
     currentChar: {
         id: 'char',
         name: '{{char}}',
@@ -40,25 +43,48 @@ const DEFAULT_PROFILE = {
         forumPosts: 'public',
         moments: 'public',
         npcChats: 'visible_to_npc',
+        groupChats: 'visible_to_group',
         targetPhone: 'visible_to_char',
+        characterSideScreen: 'char_private',
     },
+    phoneEntries: [
+        {
+            id: 'default_phone_style',
+            title: '通用手机语气',
+            type: 'custom',
+            enabled: true,
+            priority: 0,
+            linkedTargets: { characters: [], npcs: [], groups: [], apps: [], forumBoards: [], relationshipStages: [], tags: [] },
+            linkedLorebookEntries: [],
+            triggerKeywords: [],
+            content: '手机侧内容保持真实克制，遵守可见性边界，不让角色全知全能。',
+            notes: '',
+        },
+    ],
 };
 
 const EVENT_SOURCES = {
     MAIN_CHAT: 'main_chat',
     WECHAT: 'phone_wechat',
+    PRIVATE_CHAT: 'phone_private_chat',
+    GROUP_CHAT: 'phone_group_chat',
     MOMENTS: 'phone_moments',
     FORUM: 'phone_forum',
     CALENDAR: 'phone_calendar',
     MEMO: 'phone_memo',
+    SYSTEM_PUSH: 'phone_system_push',
     TARGET_PHONE: 'target_phone',
+    CHARACTER_SIDE_SCREEN: 'character_side_screen',
 };
 
 const TASK_LABELS = {
     moments: '朋友圈',
     forum: '论坛',
     npc_chat: '微信聊天',
+    group_chat: '群聊',
     target_phone: '查看目标角色手机',
+    character_side_screen: '角色侧屏',
+    proactive_event: '主动手机事件',
     delayed_reply: '延迟回复',
 };
 
@@ -113,7 +139,9 @@ function normalizeVisibility(input, fallback = {}) {
             user: Boolean(input.user),
             char: Boolean(input.char),
             npcs: uniqueArray(input.npcs),
+            groups: uniqueArray(input.groups),
             public: Boolean(input.public),
+            player: Boolean(input.player),
         };
     }
 
@@ -123,16 +151,25 @@ function normalizeVisibility(input, fallback = {}) {
     const npcs = uniqueArray([fallback.npcId, actorId, targetId].filter((id) => id && id !== 'user' && id !== 'char' && id !== 'system'));
     const isChar = actorId === 'char' || targetId === 'char' || fallback.isChar;
 
-    if (visibility === 'public') return { system: true, user: true, char: true, npcs, public: true };
-    if (visibility === 'system_only') return { system: true, user: false, char: false, npcs: [], public: false };
-    if (visibility === 'visible_to_char') return { system: true, user: Boolean(fallback.user ?? true), char: true, npcs: [], public: false };
-    if (visibility === 'visible_to_npc') return { system: true, user: Boolean(fallback.user ?? true), char: Boolean(isChar), npcs, public: false };
-    return { system: true, user: Boolean(fallback.user ?? true), char: false, npcs: [], public: false };
+    const groups = uniqueArray(fallback.groups || (fallback.groupId ? [fallback.groupId] : []));
+
+    if (visibility === 'public') return { system: true, user: true, char: true, npcs, groups, public: true, player: true };
+    if (visibility === 'system_only') return { system: true, user: false, char: false, npcs: [], groups: [], public: false, player: false };
+    if (visibility === 'player_visible') return { system: true, user: false, char: false, npcs: [], groups: [], public: false, player: true };
+    if (visibility === 'char_private') return { system: true, user: false, char: true, npcs: [], groups: [], public: false, player: true };
+    if (visibility === 'user_only') return { system: true, user: Boolean(fallback.user ?? true), char: false, npcs: [], groups: [], public: false, player: Boolean(fallback.player ?? true) };
+    if (visibility === 'visible_to_char') return { system: true, user: Boolean(fallback.user ?? true), char: true, npcs: [], groups: [], public: false, player: Boolean(fallback.player ?? true) };
+    if (visibility === 'visible_to_group') return { system: true, user: Boolean(fallback.user ?? true), char: Boolean(isChar), npcs, groups, public: false, player: Boolean(fallback.player ?? true) };
+    if (visibility === 'visible_to_npc') return { system: true, user: Boolean(fallback.user ?? true), char: Boolean(isChar), npcs, groups: [], public: false, player: Boolean(fallback.player ?? true) };
+    return { system: true, user: Boolean(fallback.user ?? true), char: false, npcs: [], groups: [], public: false, player: Boolean(fallback.player ?? true) };
 }
 
 function visibilityToLegacyLabel(visibility) {
     if (!visibility) return 'user_only';
     if (visibility.public) return 'public';
+    if (visibility.player && !visibility.user && visibility.char) return 'char_private';
+    if (visibility.player && !visibility.user) return 'player_visible';
+    if (visibility.groups?.length) return 'visible_to_group';
     if (visibility.char && !visibility.npcs?.length) return 'visible_to_char';
     if (visibility.npcs?.length && !visibility.public) return 'visible_to_npc';
     if (visibility.user) return 'user_only';
@@ -143,9 +180,11 @@ function isVisibleToSpeaker(event, speakerId) {
     const id = normalizeSpeakerId(speakerId);
     const visibility = normalizeVisibility(event?.visibility);
     if (id === 'system') return true;
+    if (id === 'player') return visibility.player || visibility.user || visibility.public;
     if (id === 'user') return visibility.user;
     if (id === 'char') return visibility.char || visibility.public;
-    return visibility.public || visibility.npcs.includes(id);
+    const profileGroups = asArray(event?.meta?.groupMembersBySpeaker?.[id]);
+    return visibility.public || visibility.npcs.includes(id) || visibility.groups.some((groupId) => profileGroups.includes(groupId));
 }
 
 function contentNeedles(text) {
@@ -180,6 +219,95 @@ function escapeHtml(value) {
     })[char]);
 }
 
+function avatarText(value) {
+    const text = String(value || '?').trim();
+    return text ? text.slice(0, 2).toUpperCase() : '?';
+}
+
+function actorDisplayName(profile, idOrName) {
+    const value = String(idOrName || '');
+    if (!value || value === 'user') return '我';
+    if (value === 'char' || value === profile?.currentChar?.id) return profile?.currentChar?.name || profile?.targetPhoneOwner || '角色';
+    return asArray(profile?.friends).find((friend) => friend.id === value || friend.name === value)?.name || value;
+}
+
+function profileSelectableTargets(profile) {
+    const current = profile?.currentChar || {};
+    const charTarget = {
+        id: current.id || 'char',
+        name: current.name || profile?.targetPhoneOwner || '当前角色',
+        type: 'char',
+    };
+    const friends = asArray(profile?.friends).map((friend) => ({
+        id: friend.id || friend.name,
+        name: friend.name || friend.id,
+        type: 'npc',
+    }));
+    const groups = asArray(profile?.groups).map((group) => ({
+        id: group.id,
+        name: group.name || group.id,
+        type: 'group',
+    }));
+    return [charTarget, ...friends, ...groups].filter((item) => item.id && item.name);
+}
+
+function normalizeMomentVisibility(mode, selected = [], excluded = []) {
+    return {
+        mode: mode || 'public',
+        selected: uniqueArray(selected),
+        excluded: uniqueArray(excluded),
+    };
+}
+
+function buildMomentVisibility(profile, scope = {}) {
+    const normalized = normalizeMomentVisibility(scope.mode, scope.selected, scope.excluded);
+    const allNpcIds = asArray(profile?.friends).map((friend) => friend.id).filter(Boolean);
+    const selected = normalized.mode === 'selected' ? normalized.selected : allNpcIds;
+    const excluded = normalized.mode === 'exclude' ? normalized.excluded : [];
+    const npcs = selected.filter((id) => !excluded.includes(id) && id !== 'char' && id !== 'user');
+    const charVisible = normalized.mode !== 'private'
+        && (normalized.mode !== 'selected' || selected.includes('char') || selected.includes(profile?.currentChar?.id))
+        && !excluded.includes('char')
+        && !excluded.includes(profile?.currentChar?.id);
+    return {
+        system: true,
+        user: true,
+        char: Boolean(charVisible),
+        npcs,
+        groups: normalized.selected.filter((id) => asArray(profile?.groups).some((group) => group.id === id)),
+        public: normalized.mode === 'public',
+        player: true,
+    };
+}
+
+function momentVisibilityLabel(profile, scope = {}) {
+    const normalized = normalizeMomentVisibility(scope.mode, scope.selected, scope.excluded);
+    const nameOf = (id) => profileSelectableTargets(profile).find((item) => item.id === id)?.name || id;
+    if (normalized.mode === 'private') return '仅自己可见';
+    if (normalized.mode === 'selected') return `仅 ${normalized.selected.map(nameOf).join('、') || '指定对象'} 可见`;
+    if (normalized.mode === 'exclude') return `${normalized.excluded.map(nameOf).join('、') || '指定对象'} 不可见`;
+    if (normalized.mode === 'friends') return '好友可见';
+    return '公开';
+}
+
+function shieldStoryPhonePointer(element, onActivate) {
+    if (!element || element.__stpShielded) return;
+    element.__stpShielded = true;
+    ['pointerdown', 'mousedown', 'touchstart'].forEach((type) => {
+        element.addEventListener(type, (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
+        }, true);
+    });
+    element.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+        if (typeof onActivate === 'function') onActivate(event);
+    }, true);
+}
+
 function fileToDataUrl(file, maxBytes = 2 * 1024 * 1024) {
     return new Promise((resolve, reject) => {
         if (!file) return resolve(null);
@@ -198,7 +326,7 @@ function mountBootBubble() {
     bubble.id = 'st-story-phone-boot-bubble';
     bubble.type = 'button';
     bubble.title = 'ST-StoryPhone 正在启动';
-    bubble.addEventListener('click', () => bootStoryPhone());
+    shieldStoryPhonePointer(bubble, () => bootStoryPhone());
     document.body.appendChild(bubble);
 }
 
@@ -331,7 +459,13 @@ class KnowledgeTimelineAuditor {
     }
 
     canSee(event, speakerId) {
-        return isVisibleToSpeaker(event, speakerId);
+        if (isVisibleToSpeaker(event, speakerId)) return true;
+        const id = normalizeSpeakerId(speakerId);
+        const visibility = normalizeVisibility(event?.visibility);
+        if (!visibility.groups.length) return false;
+        return asArray(this.profile.groups).some((group) => (
+            visibility.groups.includes(group.id) && asArray(group.members).includes(id)
+        ));
     }
 
     eventToFact(event) {
@@ -457,6 +591,14 @@ class KnowledgeTimelineAuditor {
             });
         }
 
+        if (context.speakerId === 'user' && /player_visible|char_private|角色侧屏|未发送草稿/.test(text)) {
+            issues.push({
+                type: 'visibility_error',
+                detail: '生成内容可能把 player_visible / char_private 信息自动转成了 user 已知。',
+                suggestedFix: '除非存在明确可见性转换事件，否则 {{user}} 不能基于角色侧屏私有信息行动。',
+            });
+        }
+
         return {
             ok: issues.length === 0,
             issues,
@@ -514,8 +656,13 @@ class SharedStoryState {
             eventLog: [],
             pendingEvents: [],
             knowledgeGraph: [],
+            phoneEntries: [],
+            linkedLorebookEntries: [],
+            mediaDescriptions: [],
+            proactiveQueue: [],
             phone: {
                 chats: {},
+                groupChats: {},
                 moments: [],
                 forumPosts: [],
                 calendar: [],
@@ -524,6 +671,14 @@ class SharedStoryState {
                     messages: [],
                     memos: [],
                     calendar: [],
+                },
+                characterSideScreen: {
+                    fragments: [],
+                    drafts: [],
+                    privateMessages: [],
+                    memos: [],
+                    calendar: [],
+                    notifications: [],
                 },
             },
             settings: {
@@ -554,9 +709,17 @@ class SharedStoryState {
         this.data.phoneEvents = asArray(this.data.phoneEvents);
         this.data.mainEvents = asArray(this.data.mainEvents);
         this.data.knowledgeGraph = asArray(this.data.knowledgeGraph);
+        this.data.phoneEntries = asArray(asArray(this.data.phoneEntries).length ? this.data.phoneEntries : this.data.profile?.phoneEntries || defaults.profile.phoneEntries);
+        this.data.linkedLorebookEntries = asArray(this.data.linkedLorebookEntries);
+        this.data.mediaDescriptions = asArray(this.data.mediaDescriptions);
+        this.data.proactiveQueue = asArray(this.data.proactiveQueue);
         this.data.settings = { ...defaults.settings, ...(this.data.settings || {}) };
         this.data.phone = { ...defaults.phone, ...(this.data.phone || {}) };
+        this.data.phone.groupChats = this.data.phone.groupChats || {};
+        this.data.phone.characterSideScreen = { ...defaults.phone.characterSideScreen, ...(this.data.phone.characterSideScreen || {}) };
         this.data.profile = { ...DEFAULT_PROFILE, ...(this.data.profile || {}) };
+        this.data.profile.groups = asArray(this.data.profile.groups);
+        this.data.profile.phoneEntries = asArray(this.data.profile.phoneEntries);
         if (!this.data.storyClock.storyDay && this.data.time) this.data.storyClock.storyDay = this.data.time;
         this.save();
     }
@@ -569,7 +732,10 @@ class SharedStoryState {
             relations: [],
             ...friend,
         }));
+        merged.groups = asArray(merged.groups);
+        merged.phoneEntries = asArray(merged.phoneEntries);
         this.data.profile = merged;
+        if (!asArray(this.data.phoneEntries).length) this.data.phoneEntries = merged.phoneEntries;
         this.save();
     }
 
@@ -594,6 +760,7 @@ class SharedStoryState {
             actor: event.actor || 'system',
             target: event.target ?? null,
             content: clampText(event.content || event.summary || event.title || '', 1800),
+            media: asArray(event.media),
             timestamp,
             visibility,
             consequences: asArray(event.consequences),
@@ -607,6 +774,15 @@ class SharedStoryState {
         const next = this.createEvent(event);
         this.data.eventLog.push(next);
         if (next.source === EVENT_SOURCES.MAIN_CHAT) this.data.mainEvents.push(next);
+        else {
+            this.data.phoneEvents.push({
+                ...next,
+                at: nowIso(),
+                eventId: next.id,
+                summary: event.summary || next.content,
+                legacyVisibility: visibilityToLegacyLabel(next.visibility),
+            });
+        }
         this.save();
         return next;
     }
@@ -639,7 +815,18 @@ class SharedStoryState {
             activated.push({ ...event, status: 'active', timestamp: this.nextTimestamp() });
             return false;
         });
-        activated.forEach((event) => this.data.eventLog.push(event));
+        activated.forEach((event) => {
+            this.data.eventLog.push(event);
+            if (event.source !== EVENT_SOURCES.MAIN_CHAT) {
+                this.data.phoneEvents.push({
+                    ...event,
+                    at: nowIso(),
+                    eventId: event.id,
+                    summary: event.summary || event.content,
+                    legacyVisibility: visibilityToLegacyLabel(event.visibility),
+                });
+            }
+        });
         this.save();
         return activated;
     }
@@ -673,17 +860,23 @@ class SharedStoryState {
             content: event.content || event.summary || event.title || '',
             visibility: normalizedVisibility,
         });
-        const next = {
-            id: logged.id,
-            at: nowIso(),
-            ...event,
-            visibility: visibilityToLegacyLabel(logged.visibility),
-            summary: event.summary || logged.content,
-            eventId: logged.id,
-        };
-        this.data.phoneEvents.push(next);
+        const next = this.data.phoneEvents.find((item) => item.eventId === logged.id || item.id === logged.id);
+        if (next) {
+            Object.assign(next, {
+                at: nowIso(),
+                ...event,
+                id: logged.id,
+                eventId: logged.id,
+                timestamp: logged.timestamp,
+                visibility: logged.visibility,
+                legacyVisibility: visibilityToLegacyLabel(logged.visibility),
+                summary: event.summary || logged.content,
+                content: logged.content,
+                status: logged.status,
+            });
+        }
         this.save();
-        return next;
+        return next || logged;
     }
 
     addKnowledge(fact) {
@@ -718,6 +911,106 @@ class SharedStoryState {
         this.addPhoneEvent({ source: EVENT_SOURCES.MEMO, type: 'memo_delete', actor: 'user', summary: '删除了一条备忘录', visibility: 'user_only' });
         this.save();
     }
+
+    upsertPhoneEntry(entry) {
+        const next = {
+            id: entry.id || `phone_entry_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            title: entry.title || 'Untitled Phone Entry',
+            type: entry.type || 'custom',
+            enabled: entry.enabled !== false,
+            priority: Number(entry.priority || 0),
+            linkedTargets: {
+                characters: [],
+                npcs: [],
+                groups: [],
+                apps: [],
+                forumBoards: [],
+                relationshipStages: [],
+                tags: [],
+                ...(entry.linkedTargets || {}),
+            },
+            linkedLorebookEntries: asArray(entry.linkedLorebookEntries),
+            triggerKeywords: asArray(entry.triggerKeywords),
+            content: entry.content || '',
+            notes: entry.notes || '',
+        };
+        const index = this.data.phoneEntries.findIndex((item) => item.id === next.id);
+        if (index >= 0) this.data.phoneEntries[index] = next;
+        else this.data.phoneEntries.push(next);
+        this.save();
+        return next;
+    }
+
+    deletePhoneEntry(id) {
+        this.data.phoneEntries = this.data.phoneEntries.filter((entry) => entry.id !== id);
+        this.save();
+    }
+
+    addGroupMessage(group, message) {
+        if (!this.data.phone.groupChats[group.id]) this.data.phone.groupChats[group.id] = [];
+        this.data.phone.groupChats[group.id].push(message);
+        this.addPhoneEvent({
+            source: EVENT_SOURCES.GROUP_CHAT,
+            type: 'group_message',
+            actor: message.actorId || message.actor || 'user',
+            target: group.id,
+            content: message.content || message.text || '',
+            visibility: normalizeVisibility('visible_to_group', {
+                user: true,
+                groupId: group.id,
+                groups: [group.id],
+                npcs: asArray(group.members).filter((id) => !['user', 'char'].includes(id)),
+                isChar: asArray(group.members).includes('char'),
+            }),
+            meta: { groupId: group.id, groupMembers: asArray(group.members) },
+        });
+        this.save();
+    }
+
+    addCharacterSideItem(item) {
+        const next = {
+            id: item.id || `side_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            title: item.title || '角色侧屏碎片',
+            content: item.content || item.text || '',
+            category: item.category || 'fragments',
+            visibility: item.visibility || 'char_private',
+            at: nowIso(),
+            ...item,
+        };
+        const bucket = this.data.phone.characterSideScreen[next.category] || this.data.phone.characterSideScreen.fragments;
+        bucket.unshift(next);
+        this.addPhoneEvent({
+            source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
+            type: 'character_side_item',
+            actor: 'char',
+            target: null,
+            content: `${next.title} ${next.content}`.trim(),
+            visibility: next.visibility,
+            summary: `角色侧屏：${clampText(next.title || next.content, 100)}`,
+            injectToMain: false,
+        });
+        this.save();
+        return next;
+    }
+
+    promoteCharacterSideItemToUserKnown(id, reason) {
+        const all = Object.values(this.data.phone.characterSideScreen).flat();
+        const item = all.find((entry) => entry.id === id);
+        if (!item || !reason) return null;
+        item.userVisibleReason = reason;
+        item.visibility = 'visible_to_char';
+        const event = this.addPhoneEvent({
+            source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
+            type: 'side_screen_visibility_conversion',
+            actor: 'system',
+            target: 'user',
+            content: `${item.title || ''} ${item.content || ''}`.trim(),
+            visibility: { system: true, user: true, char: true, npcs: [], groups: [], public: false, player: true },
+            summary: `角色侧屏信息转为 user 已知：${reason}`,
+        });
+        this.save();
+        return event;
+    }
 }
 
 class ProfileManager {
@@ -749,10 +1042,149 @@ class ProfileManager {
     }
 }
 
+class PhoneEntryManager {
+    constructor(state) {
+        this.state = state;
+    }
+
+    getRelevantPhoneEntries(context = {}) {
+        const entries = asArray(this.state.value.phoneEntries)
+            .filter((entry) => entry.enabled !== false)
+            .map((entry) => ({ entry, score: this.scoreEntry(entry, context) }))
+            .filter((item) => item.score > 0 || item.entry.type === 'custom')
+            .sort((a, b) => b.score - a.score || Number(b.entry.priority || 0) - Number(a.entry.priority || 0))
+            .slice(0, 12)
+            .map((item) => item.entry);
+        return {
+            entries,
+            phoneInstructionBlock: entries.map((entry) => [
+                `### Phone Entry: ${entry.title}`,
+                `type=${entry.type}; priority=${entry.priority}`,
+                entry.content,
+            ].join('\n')).join('\n\n'),
+        };
+    }
+
+    scoreEntry(entry, context) {
+        const targets = entry.linkedTargets || {};
+        let score = Number(entry.priority || 0);
+        const hasTargets = ['characters', 'npcs', 'groups', 'apps', 'forumBoards', 'relationshipStages', 'tags']
+            .some((key) => asArray(targets[key]).length);
+        if (!hasTargets) score += 1;
+        if (asArray(targets.characters).includes(context.speakerId) || asArray(targets.npcs).includes(context.speakerId)) score += 50;
+        if (context.groupId && asArray(targets.groups).includes(context.groupId)) score += 45;
+        if (context.appType && asArray(targets.apps).includes(context.appType)) score += 35;
+        if (context.forumBoardId && asArray(targets.forumBoards).includes(context.forumBoardId)) score += 30;
+        if (context.relationshipStage && asArray(targets.relationshipStages).includes(context.relationshipStage)) score += 25;
+        asArray(context.tags).forEach((tag) => {
+            if (asArray(targets.tags).includes(tag)) score += 10;
+        });
+        const haystack = plainText([context.currentMessage, context.taskType, context.appType].filter(Boolean).join(' '));
+        asArray(entry.triggerKeywords).forEach((keyword) => {
+            if (keyword && haystack.includes(keyword)) score += 15;
+        });
+        return score;
+    }
+}
+
+class MainLorebookLinker {
+    constructor(state, collector) {
+        this.state = state;
+        this.collector = collector;
+    }
+
+    getRelevantMainLore(context = {}) {
+        const collected = this.collector.collect();
+        const activeEntries = asArray(collected.worldInfoSummary?.activeEntries);
+        const linked = asArray(context.matchedPhoneEntries)
+            .flatMap((entry) => asArray(entry.linkedLorebookEntries))
+            .filter(Boolean);
+        const keywords = uniqueArray([
+            context.taskType,
+            context.speakerId,
+            context.appType,
+            context.groupId,
+            context.forumBoardId,
+            context.relationshipStage,
+            context.currentMessage,
+            ...asArray(context.tags),
+        ].flatMap((value) => plainText(value).split(/\s+/)).filter((value) => value && value.length >= 2));
+
+        const relevantLoreEntries = activeEntries
+            .map((entry, index) => ({
+                id: entry.id || `active_${index}`,
+                title: entry.title || entry.key || entry.comment || `Lore ${index + 1}`,
+                content: entry.content || entry.entry || '',
+                reason: linked.some((link) => link.entryTitle && plainText(entry.key || entry.title).includes(link.entryTitle))
+                    ? 'linked_phone_entry'
+                    : 'active_or_keyword_match',
+            }))
+            .filter((entry) => {
+                if (linked.some((link) => link.entryTitle && entry.title.includes(link.entryTitle))) return true;
+                const text = `${entry.title} ${entry.content}`;
+                return keywords.some((keyword) => text.includes(keyword));
+            })
+            .slice(0, 8);
+
+        return {
+            relevantLoreEntries,
+            loreInstructionBlock: relevantLoreEntries.map((entry) => `- [${entry.reason}] ${entry.title}: ${clampText(entry.content, 500)}`).join('\n'),
+            todo: activeEntries.length
+                ? ''
+                : 'TODO: SillyTavern 当前上下文未暴露完整已激活世界书条目；这里使用可读取到的 worldInfo 摘要和 Phone Entry 显式关联作为 mock/降级实现。',
+        };
+    }
+}
+
+class MediaSystem {
+    async analyzeImage(imageFile, context = {}) {
+        if (!imageFile) return null;
+        return {
+            ok: true,
+            description: context.description || '图片已保存为本地数据，当前环境未接入多模态识图；仅使用用户/模型提供的文字描述。',
+            visibleClues: [],
+            todo: 'TODO: 接入 SillyTavern 可用的多模态识图接口后，在这里生成 imageDescription 与 visibleClues。',
+        };
+    }
+
+    async generateImage(prompt, context = {}) {
+        return {
+            ok: false,
+            prompt,
+            placeholder: `[AI配图占位：${clampText(prompt || context.taskType || 'image', 80)}]`,
+            todo: 'TODO: 当前未接入生图接口；不会向外部服务发送请求。',
+        };
+    }
+}
+
+class ProactivePhoneEventScheduler {
+    constructor(state) {
+        this.state = state;
+    }
+
+    enqueue(event, trigger = {}) {
+        return this.state.addPendingEvent({
+            source: event.source || EVENT_SOURCES.SYSTEM_PUSH,
+            type: event.type || 'proactive_event',
+            actor: event.actor || 'system',
+            target: event.target || 'user',
+            content: event.content || event.summary || '',
+            visibility: event.visibility || 'user_only',
+            meta: { proactive: true, ...(event.meta || {}) },
+        }, trigger);
+    }
+
+    tick(reason = '') {
+        return this.state.resolvePendingEvents(reason).slice(0, 3);
+    }
+}
+
 class BackgroundGenerator {
     constructor(state, collector) {
         this.state = state;
         this.collector = collector;
+        this.phoneEntryManager = new PhoneEntryManager(state);
+        this.lorebookLinker = new MainLorebookLinker(state, collector);
     }
 
     async generateWithContext(taskType, payload = {}) {
@@ -764,7 +1196,7 @@ class BackgroundGenerator {
         const quietPrompt = this.buildPrompt(taskType, payload, collected, speakerContext);
 
         if (this.state.value.settings.apiEndpoint) {
-            const apiResult = await this.generateViaConfiguredApi(quietPrompt, taskType, speakerId, speakerContext);
+            const apiResult = await this.generateViaConfiguredApiAudited(quietPrompt, taskType, speakerId, speakerContext);
             if (apiResult.ok) return apiResult;
             return {
                 ok: false,
@@ -862,6 +1294,65 @@ class BackgroundGenerator {
         }
     }
 
+    async generateViaConfiguredApiAudited(quietPrompt, taskType, speakerId, speakerContext) {
+        let prompt = quietPrompt;
+        let lastAudit = null;
+        try {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const raw = await this.callConfiguredApiRaw(prompt, taskType, speakerContext);
+                const parsed = this.parseGeneratedResult(taskType, raw);
+                const audit = this.auditParsedResult(parsed, speakerId, speakerContext);
+                if (parsed.ok && audit.ok) return { ...parsed, ok: true, audit, visibilityContext: speakerContext };
+                lastAudit = audit;
+                prompt = [
+                    quietPrompt,
+                    '[Knowledge & Timeline Auditor blocked the previous result]',
+                    JSON.stringify(audit.issues),
+                    'Regenerate once. Use only visible facts. Do not mention forbiddenFacts, user_only/system_only/private chats, or future events. Return JSON only.',
+                ].join('\n\n');
+            }
+            return {
+                ok: false,
+                message: '本次生成疑似越界，已拦截。请刷新或重试。',
+                items: [],
+                audit: lastAudit,
+            };
+        } catch (error) {
+            return { ok: false, message: `自定义 API 调用失败：${error.message}`, items: [] };
+        }
+    }
+
+    async callConfiguredApiRaw(prompt, taskType, speakerContext) {
+        if (this.state.value.settings.apiModel) {
+            const response = await fetch(this.getChatCompletionsUrl(), {
+                method: 'POST',
+                headers: this.getApiHeaders(),
+                body: JSON.stringify({
+                    model: this.state.value.settings.apiModel,
+                    messages: [
+                        { role: 'system', content: '你是 ST-StoryPhone 手机后台生成器。只输出 JSON，不要 Markdown。' },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.7,
+                }),
+            });
+            const raw = await response.text();
+            const data = safeJsonParse(raw, { text: raw });
+            if (!response.ok) throw new Error(data.error?.message || `${response.status} ${response.statusText}`);
+            return data.choices?.[0]?.message?.content || data.text || raw;
+        }
+
+        const response = await fetch(this.state.value.settings.apiEndpoint, {
+            method: 'POST',
+            headers: this.getApiHeaders(),
+            body: JSON.stringify({ taskType, prompt, visibleContext: speakerContext }),
+        });
+        const raw = await response.text();
+        const data = safeJsonParse(raw, { text: raw });
+        if (!response.ok) throw new Error(data.error?.message || `${response.status} ${response.statusText}`);
+        return data.choices?.[0]?.message?.content || data.text || raw;
+    }
+
     async testApiConnection() {
         if (!this.state.value.settings.apiEndpoint) return { ok: false, message: '请先填写 API URL' };
         try {
@@ -895,16 +1386,40 @@ class BackgroundGenerator {
         if (payload.speakerId) return normalizeSpeakerId(payload.speakerId);
         if (payload.npcId || payload.actorId) return normalizeSpeakerId(payload.npcId || payload.actorId);
         if (taskType === 'target_phone') return 'char';
+        if (taskType === 'character_side_screen') return 'char';
         if (taskType === 'npc_chat') return normalizeSpeakerId(payload.npcId || payload.target || 'user');
+        if (taskType === 'group_chat') return normalizeSpeakerId(payload.speakerId || payload.actorId || 'system');
         if (taskType === 'forum' || taskType === 'moments') return 'system';
         return 'user';
+    }
+
+    auditParsedResult(parsed, defaultSpeakerId, defaultContext) {
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        const issues = [];
+        asArray(parsed.items).forEach((item) => {
+            const itemSpeaker = normalizeSpeakerId(item.speakerId || item.actorId || item.npcId || defaultSpeakerId);
+            const context = itemSpeaker === defaultContext?.speakerId
+                ? defaultContext
+                : auditor.resolveVisibleContext(itemSpeaker);
+            const audit = auditor.auditKnowledgeConsistency(JSON.stringify(item), itemSpeaker, context);
+            if (!audit.ok) issues.push(...audit.issues.map((issue) => ({
+                ...issue,
+                detail: `[${itemSpeaker}] ${issue.detail}`,
+            })));
+        });
+        return {
+            ok: issues.length === 0,
+            issues,
+            safeContentSuggestion: issues.length
+                ? 'Rewrite generated items using only each item actor/speaker visible context.'
+                : null,
+        };
     }
 
     async generateAndAudit(context, quietPrompt, taskType, speakerId, speakerContext) {
         const result = await context.generateQuietPrompt({ quietPrompt });
         const parsed = this.parseGeneratedResult(taskType, result);
-        const audit = new KnowledgeTimelineAuditor(this.state.value)
-            .auditKnowledgeConsistency(JSON.stringify(parsed.items), speakerId, speakerContext);
+        const audit = this.auditParsedResult(parsed, speakerId, speakerContext);
         return { ...parsed, ok: parsed.ok && audit.ok, audit, visibilityContext: speakerContext };
     }
 
@@ -918,6 +1433,22 @@ class BackgroundGenerator {
         }));
         const boundary = new KnowledgeTimelineAuditor(state)
             .buildPromptWithVisibilityBoundary(speakerContext.speakerId, taskType, payload);
+        const entryContext = {
+            taskType,
+            speakerId: speakerContext.speakerId,
+            appType: payload.appType || taskType,
+            groupId: payload.groupId,
+            forumBoardId: payload.board || payload.forumBoardId,
+            relationshipStage: state.phase,
+            currentMessage: payload.message || payload.currentMessage || payload.content || '',
+            storyState: state,
+            tags: payload.tags || [],
+        };
+        const phoneEntryMatch = this.phoneEntryManager.getRelevantPhoneEntries(entryContext);
+        const loreMatch = this.lorebookLinker.getRelevantMainLore({
+            ...entryContext,
+            matchedPhoneEntries: phoneEntryMatch.entries,
+        });
         const isSystemSpeaker = speakerContext.speakerId === 'system';
         const safeSharedState = {
             time: state.time,
@@ -954,6 +1485,10 @@ class BackgroundGenerator {
                 knownFacts: speakerContext.knownFacts.slice(-12),
             })}`,
             `speaker 禁止知道的信息：${JSON.stringify(speakerContext.forbiddenFacts.slice(-12))}`,
+            `命中的 Phone Entries：${JSON.stringify(phoneEntryMatch.entries.map((entry) => ({ id: entry.id, title: entry.title, type: entry.type, priority: entry.priority })))}`,
+            `Phone Entries 指令块：\n${phoneEntryMatch.phoneInstructionBlock || '(none)'}`,
+            `命中的主世界书条目：${JSON.stringify(loreMatch.relevantLoreEntries)}`,
+            `主世界书指令块：\n${loreMatch.loreInstructionBlock || loreMatch.todo || '(none)'}`,
             '可见性规则：system 永远知道全部；speaker 只能知道其可见信息。system_only/user_only/其他NPC私聊不得被角色直接引用。',
             '生成要求：内容应像真实手机信息流。每个 item 至少包含 title/content/actor/visibility，可按任务增加 comments/likes/time/board。',
         ].join('\n\n');
@@ -1052,8 +1587,14 @@ class PhoneUI {
         `;
         document.body.appendChild(this.root);
         this.screen = this.root.querySelector('.stp-screen');
-        this.root.querySelector('.stp-mini').addEventListener('click', () => this.toggleMinimized(true));
-        this.root.querySelector('.stp-bubble').addEventListener('click', () => this.toggleMinimized(false));
+        shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.toggleMinimized(true));
+        this.root.querySelector('.stp-bubble').addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
+            if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
+            this.toggleMinimized(false);
+        }, true);
         this.bindDrag();
         this.bindEvents();
         this.toggleMinimized(Boolean(this.state.value.settings.minimized));
@@ -1094,6 +1635,7 @@ class PhoneUI {
                 startTop = rect.top;
                 dragHandle.setPointerCapture?.(pointerId);
                 event.preventDefault();
+                event.stopPropagation();
             });
             dragHandle.addEventListener('pointermove', (event) => {
                 if (pointerId !== event.pointerId) return;
@@ -1107,6 +1649,7 @@ class PhoneUI {
                 shell.style.left = `${left}px`;
                 shell.style.top = `${top}px`;
                 event.preventDefault();
+                event.stopPropagation();
             });
             dragHandle.addEventListener('pointerup', (event) => {
                 if (pointerId !== event.pointerId) return;
@@ -1119,6 +1662,7 @@ class PhoneUI {
                 if (dragHandle === bubble && moved) bubble.dataset.stpSuppressOpen = '1';
                 setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 0);
                 event.preventDefault();
+                event.stopPropagation();
             });
         };
         bind(handle);
@@ -1160,11 +1704,14 @@ class PhoneUI {
 
         if (this.activeApp === 'home') this.renderHome(profile);
         if (this.activeApp === 'wechat') this.renderWechat(profile);
+        if (this.activeApp === 'groups') this.renderGroups(profile);
         if (this.activeApp === 'moments') this.renderMoments();
         if (this.activeApp === 'forum') this.renderForum(profile);
         if (this.activeApp === 'calendar') this.renderCalendar();
         if (this.activeApp === 'memos') this.renderMemos();
         if (this.activeApp === 'target') this.renderTargetPhone(profile);
+        if (this.activeApp === 'entries') this.renderPhoneEntries();
+        if (this.activeApp === 'debug') this.renderDebugPanel();
         if (this.activeApp === 'settings') this.renderSettings();
     }
 
@@ -1195,11 +1742,14 @@ class PhoneUI {
         const grid = createElement('div', 'stp-app-grid');
         [
             ['wechat', '微信', '💬'],
+            ['groups', '群聊', '#'],
             ['moments', '朋友圈', '🫧'],
             ['forum', profile.forum?.name || '论坛', '📌'],
             ['calendar', '日历', '📅'],
             ['memos', '备忘录', '📝'],
-            ['target', '查看目标角色手机', '📱'],
+            ['target', '角色侧屏', 'SIDE'],
+            ['entries', 'Phone Entries', 'PE'],
+            ['debug', '调试', 'DBG'],
             ['settings', '设置', '⚙️'],
         ].forEach(([app, label, icon]) => {
             const button = createElement('button', 'stp-app-icon', '');
@@ -1235,10 +1785,10 @@ class PhoneUI {
         }
 
         if (activeTab === 'moments') {
-            const action = createElement('button', 'stp-wide-action wechat-refresh', '生成/刷新朋友圈');
+            const action = createElement('button', 'stp-wide-action wechat-refresh stp-moment-camera', '生成/刷新 · 📷');
             action.type = 'button';
             action.addEventListener('click', () => this.generateMoments());
-            const composer = this.createSocialComposer('moment');
+            const composer = this.createSocialComposerV2('moment');
             const list = createElement('div', 'stp-card-list stp-moments-list');
             this.state.value.phone.moments.forEach((post) => list.append(this.renderSocialCard(post, 'moment')));
             if (!this.state.value.phone.moments.length) list.append(createElement('p', 'stp-empty', '还没有动态。点击刷新会基于主剧情状态后台生成。'));
@@ -1379,7 +1929,7 @@ class PhoneUI {
             isChar,
         });
         this.state.addPhoneEvent({
-            source: EVENT_SOURCES.WECHAT,
+            source: EVENT_SOURCES.PRIVATE_CHAT,
             type: 'npc_chat',
             actor: isUserSender ? 'user' : id,
             target: isUserSender ? (isChar ? 'char' : id) : 'user',
@@ -1404,6 +1954,172 @@ class PhoneUI {
         // TODO: If SillyTavern exposes a stable image generation extension API, wire generated image/sticker assets here.
         this.pushChat(friend, { sender: friend.id, content, imageUrl: item.imageUrl, imageData: item.imageData, sticker: item.sticker, at: nowIso() });
         this.renderWechat(this.state.value.profile);
+    }
+
+    renderGroups(profile) {
+        this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app');
+        wrap.append(this.nav('群聊'));
+        const groups = asArray(profile.groups);
+        const list = createElement('div', 'stp-card-list compact');
+        if (!this.selectedGroup && groups[0]) this.selectedGroup = groups[0].id;
+        groups.forEach((group) => {
+            const card = createElement('button', `stp-list-card ${this.selectedGroup === group.id ? 'active' : ''}`, '');
+            card.type = 'button';
+            card.innerHTML = `<b>${escapeHtml(group.name || group.id)}</b><small>${asArray(group.members).join(', ')}</small>`;
+            card.addEventListener('click', () => {
+                this.selectedGroup = group.id;
+                this.renderGroups(profile);
+            });
+            list.append(card);
+        });
+
+        const current = groups.find((group) => group.id === this.selectedGroup) || groups[0];
+        const pane = createElement('div', 'stp-chat-pane');
+        if (!current) {
+            pane.append(createElement('p', 'stp-empty', '暂无群聊。可在 Phone Profile 的 groups 中配置。'));
+        } else {
+            const history = asArray(this.state.value.phone.groupChats[current.id]);
+            const messages = createElement('div', 'stp-messages');
+            history.forEach((message) => {
+                const bubble = createElement('div', `stp-message ${message.actorId === 'user' ? 'me' : 'npc'}`);
+                bubble.append(createElement('small', '', message.actorName || message.actorId || 'member'));
+                if (message.sticker) bubble.append(createElement('div', 'stp-sticker', message.sticker));
+                bubble.append(createElement('span', '', message.content || message.text || ''));
+                messages.append(bubble);
+            });
+            const form = createElement('form', 'stp-reply-box');
+            form.innerHTML = `
+                <input name="message" autocomplete="off" placeholder="群聊消息，只对群成员可见" />
+                <button class="stp-pixel-button" type="submit">发送</button>
+                <button class="stp-pixel-button ghost" type="button" data-generate>生成群聊</button>
+            `;
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const text = String(new FormData(form).get('message') || '').trim();
+                if (!text) return;
+                this.state.addGroupMessage(current, { actorId: 'user', actorName: '我', content: text, at: nowIso() });
+                this.renderGroups(profile);
+            });
+            form.querySelector('[data-generate]').addEventListener('click', () => this.generateGroupReply(current));
+            pane.append(createElement('h3', '', current.name || current.id), messages, form);
+        }
+        wrap.append(list, pane);
+        this.screen.append(wrap);
+    }
+
+    async generateGroupReply(group) {
+        this.setLoading(`正在生成 ${group.name || group.id} 的群聊消息...`);
+        const result = await this.generator.generateWithContext('group_chat', {
+            groupId: group.id,
+            groupName: group.name,
+            members: group.members,
+            history: this.state.value.phone.groupChats[group.id] || [],
+        });
+        if (!result.ok) return this.showNotice(result.message);
+        result.items.slice(0, 4).forEach((item) => {
+            this.state.addGroupMessage(group, {
+                actorId: item.actorId || item.actor || 'group_member',
+                actorName: item.actor || item.author || item.actorId || '群成员',
+                content: item.content || item.text || result.summary || '',
+                sticker: item.sticker,
+                at: nowIso(),
+            });
+        });
+        this.renderGroups(this.state.value.profile);
+    }
+
+    createSocialComposerV2(source) {
+        const form = createElement('form', `stp-social-composer stp-social-composer-v2 ${source === 'forum' ? 'forum' : 'moment'}`);
+        const isForum = source === 'forum';
+        const profile = this.state.value.profile || DEFAULT_PROFILE;
+        const targets = profileSelectableTargets(profile);
+        const visibilityControls = isForum ? '' : `
+            <div class="stp-visibility-panel">
+                <label>可见范围
+                    <select name="visibilityMode">
+                        <option value="public">公开</option>
+                        <option value="friends">好友可见</option>
+                        <option value="selected">仅选中可见</option>
+                        <option value="exclude">选中不可见</option>
+                        <option value="private">仅自己可见</option>
+                    </select>
+                </label>
+                <div class="stp-target-picker">
+                    ${targets.map((target) => `
+                        <label>
+                            <input type="checkbox" name="visibilityTargets" value="${escapeHtml(target.id)}">
+                            <span>${escapeHtml(target.name)}</span>
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        form.innerHTML = `
+            <input name="title" autocomplete="off" placeholder="${isForum ? '标题' : '这一刻的心情'}" />
+            <textarea name="content" rows="3" placeholder="${isForum ? '发布一条生活化、克制的论坛帖' : '写点什么...'}"></textarea>
+            ${visibilityControls}
+            <div class="stp-composer-row">
+                <label class="stp-file-button">图片<input name="image" type="file" accept="image/*" /></label>
+                <button class="stp-pixel-button" type="submit">${isForum ? '发帖' : '发送'}</button>
+            </div>
+        `;
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const data = new FormData(form);
+            const title = String(data.get('title') || '').trim();
+            const content = String(data.get('content') || '').trim();
+            let imageData = null;
+            try {
+                imageData = await fileToDataUrl(form.querySelector('input[name="image"]').files?.[0]);
+            } catch (error) {
+                this.showNotice(error.message);
+                return;
+            }
+            if (!title && !content && !imageData) return;
+
+            const visibilityMode = String(data.get('visibilityMode') || 'public');
+            const selectedTargets = Array.from(form.querySelectorAll('input[name="visibilityTargets"]:checked')).map((input) => input.value);
+            const visibilityScope = isForum
+                ? normalizeMomentVisibility('public')
+                : normalizeMomentVisibility(
+                    visibilityMode,
+                    visibilityMode === 'selected' ? selectedTargets : [],
+                    visibilityMode === 'exclude' ? selectedTargets : [],
+                );
+            const visibility = isForum ? 'public' : buildMomentVisibility(profile, visibilityScope);
+            const post = {
+                id: `${source}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                actor: '我',
+                actorId: 'user',
+                author: '我',
+                title,
+                content,
+                imageData,
+                time: '刚刚',
+                board: isForum ? this.state.value.profile?.forum?.defaultBoard || '论坛' : undefined,
+                visibility: isForum ? 'public' : visibilityToLegacyLabel(visibility),
+                visibilityScope,
+                likes: [],
+                comments: [],
+            };
+            if (isForum) this.state.value.phone.forumPosts.unshift(post);
+            else this.state.value.phone.moments.unshift(post);
+            this.state.addPhoneEvent({
+                source: isForum ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS,
+                type: isForum ? 'forum_user_post' : 'moment_user_post',
+                actor: 'user',
+                target: isForum ? post.board : null,
+                content: `${title} ${content} ${imageData ? '[图片]' : ''}`.trim(),
+                visibility,
+                summary: `${isForum ? '论坛发帖' : `朋友圈发布（${momentVisibilityLabel(profile, visibilityScope)}）`}：${clampText(title || content || '[图片]', 100)}`,
+                meta: isForum ? {} : { visibilityScope },
+            });
+            this.state.save();
+            if (isForum) this.renderForum(this.state.value.profile);
+            else this.renderMoments();
+        });
+        return form;
     }
 
     createSocialComposer(source) {
@@ -1466,10 +2182,10 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('朋友圈'));
-        const action = createElement('button', 'stp-wide-action', '生成/刷新朋友圈');
+        const action = createElement('button', 'stp-wide-action stp-moment-camera', '生成/刷新 · 📷');
         action.type = 'button';
         action.addEventListener('click', () => this.generateMoments());
-        const composer = this.createSocialComposer('moment');
+        const composer = this.createSocialComposerV2('moment');
         const list = createElement('div', 'stp-card-list');
         this.state.value.phone.moments.forEach((post) => list.append(this.renderSocialCard(post, 'moment')));
         if (!this.state.value.phone.moments.length) list.append(createElement('p', 'stp-empty', '还没有动态。点击刷新会基于主剧情状态后台生成。'));
@@ -1512,7 +2228,7 @@ class PhoneUI {
         const action = createElement('button', 'stp-wide-action', '刷新论坛帖子');
         action.type = 'button';
         action.addEventListener('click', () => this.generateForum());
-        const composer = this.createSocialComposer('forum');
+        const composer = this.createSocialComposerV2('forum');
         const list = createElement('div', 'stp-card-list');
         this.state.value.phone.forumPosts.forEach((post) => list.append(this.renderSocialCard(post, 'forum')));
         if (!this.state.value.phone.forumPosts.length) list.append(createElement('p', 'stp-empty', '论坛空空的。刷新后会生成克制真实的校园帖子。'));
@@ -1553,9 +2269,15 @@ class PhoneUI {
 
     renderSocialCard(post, source) {
         const card = createElement('article', 'stp-social-card');
+        card.classList.add(source === 'forum' ? 'stp-thread-card' : 'stp-moment-card');
         const comments = asArray(post.comments);
         const likes = asArray(post.likes);
         const likedByUser = likes.includes('user');
+        const profile = this.state.value.profile || DEFAULT_PROFILE;
+        const authorName = actorDisplayName(profile, post.actorId || post.actor || post.author);
+        const visibilityLabel = source === 'moment'
+            ? momentVisibilityLabel(profile, post.visibilityScope || { mode: post.visibility || 'public' })
+            : (post.board || '论坛');
         card.innerHTML = `
             <div class="stp-card-meta"><b>${escapeHtml(post.actor || post.author || '匿名')}</b><span>${escapeHtml(post.time || '刚刚')}</span></div>
             ${post.title ? `<h3>${escapeHtml(post.title)}</h3>` : ''}
@@ -1566,6 +2288,12 @@ class PhoneUI {
                 <span>${comments.length} comments</span>
             </div>
         `;
+        const meta = card.querySelector('.stp-card-meta');
+        if (meta) {
+            meta.innerHTML = `<span class="stp-social-avatar">${escapeHtml(avatarText(authorName))}</span><b>${escapeHtml(authorName || '匿名')}</b><span>${escapeHtml(post.time || '刚刚')}</span>`;
+        }
+        const firstChip = card.querySelector('.stp-chip-row span');
+        if (firstChip) firstChip.textContent = visibilityLabel;
         if (post.imageData || post.imageUrl) {
             const image = createElement('img', 'stp-social-image');
             image.src = post.imageData || post.imageUrl;
@@ -1583,12 +2311,15 @@ class PhoneUI {
             post.likes = wasLiked ? post.likes.filter((id) => id !== 'user') : [...post.likes, 'user'];
             const sourceName = source === 'forum' ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS;
             const authorId = post.actorId || post.actor || post.author || null;
+            const actionVisibility = source === 'moment'
+                ? buildMomentVisibility(profile, post.visibilityScope || { mode: post.visibility || 'public' })
+                : 'public';
             this.state.addPhoneEvent({
                 source: sourceName,
                 type: wasLiked ? `${source}_unlike` : `${source}_like`,
                 actor: 'user',
                 target: authorId,
-                visibility: post.visibility === 'public' ? 'public' : normalizeVisibility('visible_to_npc', { user: true, actorId: 'user', targetId: authorId }),
+                visibility: actionVisibility,
                 summary: `${wasLiked ? '取消点赞' : '点赞'}：${post.title || post.content || '[图片]'}`,
             });
             this.state.save();
@@ -1601,13 +2332,16 @@ class PhoneUI {
             post.comments.push({ actor: 'user', content: text.trim(), at: nowIso() });
             const sourceName = source === 'forum' ? EVENT_SOURCES.FORUM : EVENT_SOURCES.MOMENTS;
             const authorId = post.actorId || post.actor || post.author || null;
+            const actionVisibility = source === 'moment'
+                ? buildMomentVisibility(profile, post.visibilityScope || { mode: post.visibility || 'public' })
+                : 'public';
             this.state.addPhoneEvent({
                 source: sourceName,
                 type: `${source}_comment`,
                 actor: 'user',
                 target: authorId,
                 content: text.trim(),
-                visibility: post.visibility === 'public' ? 'public' : normalizeVisibility('visible_to_npc', { user: true, actorId: 'user', targetId: authorId }),
+                visibility: actionVisibility,
                 summary: `评论：${clampText(text, 80)}`,
             });
             this.state.save();
@@ -1684,14 +2418,30 @@ class PhoneUI {
     renderTargetPhone(profile) {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
-        wrap.append(this.nav(`${profile.targetPhoneOwner || profile.phoneOwnerLabel} 的手机`));
-        const notice = createElement('div', 'stp-note', '只读模式：你可以查看根据目标角色可见信息生成的消息、备忘录和日历，但不能替目标角色发消息。');
-        const action = createElement('button', 'stp-wide-action', '生成目标角色手机内容');
+        wrap.append(this.nav('角色侧屏'));
+        const notice = createElement('div', 'stp-note', '玩家可见的信息面板，不等于 {{user}} 已知。默认内容是 player_visible / char_private；同步给 {{user}} 必须填写剧情原因。');
+        const action = createElement('button', 'stp-wide-action', '生成角色侧屏碎片');
         action.type = 'button';
         action.addEventListener('click', () => this.generateTargetPhone(profile));
         const list = createElement('div', 'stp-card-list');
         const data = this.state.value.phone.targetPhone;
-        [...data.messages, ...data.memos, ...data.calendar].forEach((item) => list.append(createElement('div', 'stp-list-card', `${item.title || item.actor || '项目'}：${item.content || item.text || item.time || ''}`)));
+        const sideData = this.state.value.phone.characterSideScreen;
+        [...asArray(data.messages), ...Object.values(sideData).flat()].forEach((item) => {
+            const card = createElement('div', 'stp-list-card', '');
+            card.innerHTML = `<b>${escapeHtml(item.title || item.actor || '项目')}</b><p>${escapeHtml(item.content || item.text || item.time || '')}</p><small>${escapeHtml(item.visibility || 'char_private')}</small>`;
+            if (!item.userVisibleReason) {
+                const promote = createElement('button', 'stp-pixel-button ghost', '同步为 user 已知');
+                promote.type = 'button';
+                promote.addEventListener('click', () => {
+                    const reason = prompt('填写剧情原因，例如：对方主动展示手机 / 误发截图 / 锁屏通知被看到');
+                    if (!reason?.trim()) return;
+                    this.state.promoteCharacterSideItemToUserKnown(item.id, reason.trim());
+                    this.renderTargetPhone(profile);
+                });
+                card.append(promote);
+            }
+            list.append(card);
+        });
         if (!list.children.length) list.append(createElement('p', 'stp-empty', '尚未生成目标角色手机内容。'));
         wrap.append(notice, action, list);
         this.screen.append(wrap);
@@ -1701,27 +2451,201 @@ class PhoneUI {
         this.setLoading(`正在生成 ${profile.targetPhoneOwner || '目标角色'} 手机...`);
         const result = await this.generator.generateWithContext('target_phone', {
             owner: profile.targetPhoneOwner,
-            visibility: 'visible_to_char',
+            visibility: 'char_private',
             readonly: true,
         });
         if (!result.ok) return this.showNotice(result.message);
-        const normalized = result.items.map((item) => ({ ...item, visibility: item.visibility || 'visible_to_char' }));
+        const normalized = result.items.map((item) => ({
+            id: item.id || `side_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            ...item,
+            visibility: item.visibility || 'char_private',
+        }));
         this.state.value.phone.targetPhone.messages.unshift(...normalized);
         normalized.forEach((item) => {
+            this.state.addCharacterSideItem({
+                id: item.id,
+                title: item.title || item.actor || '角色侧屏碎片',
+                content: item.content || item.text || '',
+                category: item.category || 'fragments',
+                visibility: item.visibility || 'char_private',
+            });
             this.state.addPhoneEvent({
-                source: EVENT_SOURCES.TARGET_PHONE,
+                source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN,
                 type: 'target_phone_item',
                 actor: 'char',
                 target: null,
                 content: `${item.title || ''} ${item.content || item.text || ''}`.trim(),
-                visibility: 'visible_to_char',
-                summary: `目标角色手机内容：${clampText(item.title || item.content || item.text, 120)}`,
+                visibility: 'char_private',
+                summary: `角色侧屏内容：${clampText(item.title || item.content || item.text, 120)}`,
                 injectToMain: false,
             });
         });
-        this.state.addPhoneEvent({ source: EVENT_SOURCES.TARGET_PHONE, type: 'target_phone_view', actor: 'user', target: 'char', visibility: 'user_only', summary: result.summary || `查看了 ${profile.targetPhoneOwner} 的手机`, injectToMain: false });
+        this.state.addPhoneEvent({ source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN, type: 'side_screen_view', actor: 'player', target: 'char', visibility: 'player_visible', summary: result.summary || `玩家查看了 ${profile.targetPhoneOwner} 的角色侧屏`, injectToMain: false });
         this.state.save();
         this.renderTargetPhone(profile);
+    }
+
+    renderPhoneEntries() {
+        this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app');
+        wrap.append(this.nav('Phone Entries'));
+        const form = createElement('form', 'stp-editor');
+        form.innerHTML = `
+            <input name="title" placeholder="条目标题" />
+            <input name="type" placeholder="类型，例如 private_chat_style / group_chat_rule / forum_board_rule" />
+            <input name="targets" placeholder="目标，用逗号分隔：角色/NPC/群/App/tag" />
+            <input name="priority" type="number" placeholder="优先级" />
+            <textarea name="content" rows="4" placeholder="线上语气、社交习惯、表情包规则、主动消息规则等"></textarea>
+            <button class="stp-pixel-button" type="submit">保存条目</button>
+        `;
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const data = new FormData(form);
+            const targets = String(data.get('targets') || '').split(',').map((item) => item.trim()).filter(Boolean);
+            this.state.upsertPhoneEntry({
+                title: String(data.get('title') || '').trim(),
+                type: String(data.get('type') || 'custom').trim(),
+                priority: Number(data.get('priority') || 0),
+                linkedTargets: {
+                    characters: targets,
+                    npcs: targets,
+                    groups: targets,
+                    apps: targets,
+                    forumBoards: targets,
+                    relationshipStages: [],
+                    tags: targets,
+                },
+                content: String(data.get('content') || '').trim(),
+            });
+            this.renderPhoneEntries();
+        });
+        const tools = createElement('div', 'stp-inline-actions');
+        const importButton = createElement('button', 'stp-pixel-button ghost', '导入单条 JSON');
+        const exportButton = createElement('button', 'stp-pixel-button ghost', '导出全部');
+        importButton.type = 'button';
+        exportButton.type = 'button';
+        importButton.addEventListener('click', () => {
+            const raw = prompt('粘贴 Phone Entry JSON');
+            if (!raw) return;
+            const entry = safeJsonParse(raw, null);
+            if (!entry) return this.showNotice('JSON 格式无效');
+            this.state.upsertPhoneEntry(entry);
+            this.renderPhoneEntries();
+        });
+        exportButton.addEventListener('click', () => {
+            console.info(`${EXTENSION_ID} phoneEntries`, cloneValue(this.state.value.phoneEntries));
+            this.showNotice('Phone Entries 已输出到控制台');
+        });
+        tools.append(importButton, exportButton);
+        const list = createElement('div', 'stp-card-list compact');
+        asArray(this.state.value.phoneEntries).forEach((entry) => {
+            const card = createElement('div', 'stp-list-card', '');
+            card.innerHTML = `<b>${escapeHtml(entry.title)}</b><small>${escapeHtml(entry.type)} | priority ${entry.priority || 0} | ${entry.enabled === false ? 'disabled' : 'enabled'}</small><p>${escapeHtml(clampText(entry.content, 160))}</p>`;
+            const toggle = createElement('button', 'stp-pixel-button ghost', entry.enabled === false ? '启用' : '禁用');
+            const copy = createElement('button', 'stp-pixel-button ghost', '复制');
+            const del = createElement('button', 'stp-pixel-button ghost', '删除');
+            [toggle, copy, del].forEach((button) => { button.type = 'button'; });
+            toggle.addEventListener('click', () => {
+                this.state.upsertPhoneEntry({ ...entry, enabled: entry.enabled === false });
+                this.renderPhoneEntries();
+            });
+            copy.addEventListener('click', () => {
+                this.state.upsertPhoneEntry({ ...entry, id: '', title: `${entry.title} copy` });
+                this.renderPhoneEntries();
+            });
+            del.addEventListener('click', () => {
+                this.state.deletePhoneEntry(entry.id);
+                this.renderPhoneEntries();
+            });
+            card.append(toggle, copy, del);
+            list.append(card);
+        });
+        if (!list.children.length) list.append(createElement('p', 'stp-empty', '暂无 Phone Entry。'));
+        wrap.append(form, tools, list);
+        this.screen.append(wrap);
+    }
+
+    renderDebugPanel() {
+        this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app');
+        wrap.append(this.nav('调试面板'));
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        const charContext = auditor.buildContextForSpeaker('char');
+        const playerContext = auditor.buildContextForSpeaker('player');
+        const entryMatch = new PhoneEntryManager(this.state).getRelevantPhoneEntries({ taskType: 'debug', speakerId: 'char', appType: 'debug' });
+        const loreMatch = new MainLorebookLinker(this.state, this.collector).getRelevantMainLore({ taskType: 'debug', speakerId: 'char', matchedPhoneEntries: entryMatch.entries });
+        const summary = createElement('pre', 'stp-debug-pre', JSON.stringify({
+            storyClock: this.state.value.storyClock,
+            recentPhoneEvents: this.state.value.phoneEvents.slice(-5),
+            recentMainEvents: this.state.value.mainEvents.slice(-5),
+            charVisible: {
+                visiblePhoneEvents: charContext.visiblePhoneEvents.slice(-5),
+                forbiddenFacts: charContext.forbiddenFacts.slice(-5),
+            },
+            playerVisibleOnly: playerContext.visiblePhoneEvents.slice(-5),
+            matchedPhoneEntries: entryMatch.entries.map((entry) => entry.title),
+            matchedLoreEntries: loreMatch.relevantLoreEntries.map((entry) => entry.title),
+            pendingEvents: this.state.value.pendingEvents.slice(-10),
+            backend: this.state.value.settings.apiEndpoint ? 'custom_api' : 'sillytavern_or_mock',
+            injectIntoMainContext: this.state.value.settings.injectIntoMainContext,
+        }, null, 2));
+        const tests = createElement('div', 'stp-card-list compact');
+        [
+            ['私聊 A，B 是否知道', () => this.runVisibilityTestPrivateNpc()],
+            ['给 char 发消息', () => this.runVisibilityTestChar()],
+            ['点赞朋友圈', () => this.runVisibilityTestMomentLike()],
+            ['只查看论坛', () => this.runVisibilityTestForumView()],
+            ['群聊成员可见', () => this.runVisibilityTestGroup()],
+            ['player_visible 不转 user_visible', () => this.runVisibilityTestPlayerVisible()],
+        ].forEach(([label, fn]) => {
+            const button = createElement('button', 'stp-pixel-button ghost', label);
+            button.type = 'button';
+            button.addEventListener('click', () => {
+                console.info(`${EXTENSION_ID} debug test`, label, fn());
+                this.showNotice('测试结果已输出到控制台');
+            });
+            tests.append(button);
+        });
+        wrap.append(summary, tests);
+        this.screen.append(wrap);
+    }
+
+    runVisibilityTestPrivateNpc() {
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.PRIVATE_CHAT, type: 'debug_private_a', actor: 'user', target: 'debug_a', content: 'debug secret to A', visibility: normalizeVisibility('visible_to_npc', { actorId: 'user', targetId: 'debug_a' }) });
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        return { event, a: auditor.canSee(event, 'debug_a'), char: auditor.canSee(event, 'char') };
+    }
+
+    runVisibilityTestChar() {
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.PRIVATE_CHAT, type: 'debug_private_char', actor: 'user', target: 'char', content: 'debug secret to char', visibility: 'visible_to_char' });
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        return { event, char: auditor.canSee(event, 'char'), npc: auditor.canSee(event, 'debug_a') };
+    }
+
+    runVisibilityTestMomentLike() {
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.MOMENTS, type: 'debug_moment_like', actor: 'user', target: 'debug_author', content: 'debug liked a moment', visibility: 'public' });
+        return { event, charVisible: new KnowledgeTimelineAuditor(this.state.value).canSee(event, 'char') };
+    }
+
+    runVisibilityTestForumView() {
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.FORUM, type: 'debug_forum_view', actor: 'user', target: 'debug_post', content: 'debug viewed forum only', visibility: 'user_only' });
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        return { event, user: auditor.canSee(event, 'user'), author: auditor.canSee(event, 'debug_author') };
+    }
+
+    runVisibilityTestGroup() {
+        const group = { id: 'debug_group', name: 'debug group', members: ['user', 'debug_a'] };
+        this.state.value.profile.groups = [...asArray(this.state.value.profile.groups).filter((item) => item.id !== group.id), group];
+        this.state.addGroupMessage(group, { actorId: 'debug_a', content: 'debug group message', at: nowIso() });
+        const event = this.state.value.eventLog.at(-1);
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        return { event, member: auditor.canSee(event, 'debug_a'), nonMember: auditor.canSee(event, 'char') };
+    }
+
+    runVisibilityTestPlayerVisible() {
+        const event = this.state.addPhoneEvent({ source: EVENT_SOURCES.CHARACTER_SIDE_SCREEN, type: 'debug_player_visible', actor: 'char', content: 'debug player only draft', visibility: 'player_visible', injectToMain: false });
+        const auditor = new KnowledgeTimelineAuditor(this.state.value);
+        return { event, player: auditor.canSee(event, 'player'), user: auditor.canSee(event, 'user') };
     }
 
     renderSettings() {
@@ -1863,6 +2787,7 @@ class StoryPhoneApp {
         this.profileManager = new ProfileManager(this.state);
         this.generator = new BackgroundGenerator(this.state, this.collector);
         this.injector = new ContextInjector(this.state);
+        this.scheduler = new ProactivePhoneEventScheduler(this.state);
         this.mainChatObserver = new MainChatObserver(this.state, this.collector);
         this.ui = new PhoneUI(this.state, this.collector, this.profileManager, this.generator);
     }
@@ -1877,8 +2802,14 @@ class StoryPhoneApp {
             auditKnowledgeConsistency: (generatedContent, speakerId, context) => new KnowledgeTimelineAuditor(this.state.value).auditKnowledgeConsistency(generatedContent, speakerId, context),
             resolveVisibleContext: (speakerId) => new KnowledgeTimelineAuditor(this.state.value).resolveVisibleContext(speakerId),
             buildPromptWithVisibilityBoundary: (speakerId, taskType, payload) => new KnowledgeTimelineAuditor(this.state.value).buildPromptWithVisibilityBoundary(speakerId, taskType, payload),
+            getRelevantPhoneEntries: (context) => new PhoneEntryManager(this.state).getRelevantPhoneEntries(context),
+            getRelevantMainLore: (context) => new MainLorebookLinker(this.state, this.collector).getRelevantMainLore(context),
             mockAddEvent: (event) => this.state.addEvent(event),
             mockAddPendingEvent: (event, trigger) => this.state.addPendingEvent(event, trigger),
+            schedulerTick: (reason) => this.scheduler.tick(reason),
+            schedulerEnqueue: (event, trigger) => this.scheduler.enqueue(event, trigger),
+            mockAnalyzeImage: (imageFile, context) => new MediaSystem().analyzeImage(imageFile, context),
+            mockGenerateImage: (prompt, context) => new MediaSystem().generateImage(prompt, context),
         };
     }
 }

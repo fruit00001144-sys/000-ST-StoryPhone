@@ -3,11 +3,11 @@
   "loading_order": -999999,
   "requires": [],
   "optional": [],
-  "js": "index.js?v=0.3.4",
+  "js": "index.js?v=0.4.1",
   "css": "style.css",
   "generate_interceptor": "STStoryPhoneGenerationInterceptor",
   "author": "ST-StoryPhone contributors",
-  "version": "0.3.4",
+  "version": "0.4.1",
   "homePage": "https://github.com/fruit00001144-sys/000-ST-StoryPhone",
   "auto_update": true
 }
