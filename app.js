@@ -1572,6 +1572,9 @@ class PhoneUI {
 
     mount() {
         if (document.getElementById('st-story-phone')) return;
+        document.getElementById('st-story-phone-fallback')?.remove();
+        document.getElementById('st-story-phone-launcher')?.remove();
+        document.getElementById('st-story-phone-boot-bubble')?.remove();
         this.root = createElement('section', 'stp-phone-shell', '');
         this.root.id = 'st-story-phone';
         this.root.innerHTML = `

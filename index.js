@@ -2,7 +2,7 @@
     'use strict';
 
     var EXTENSION_ID = 'ST-StoryPhone';
-    var EXTENSION_VERSION = '0.4.1';
+    var EXTENSION_VERSION = '0.4.2';
     var MODULE_BASE = new URL('.', import.meta.url).href;
     var APP_SCRIPT = new URL('app.js', MODULE_BASE).href;
     var CORE_SCRIPT = new URL('core.js', MODULE_BASE).href;
@@ -625,6 +625,8 @@
                 window.STStoryPhoneDebug.boot();
             }
             showToast('ST-StoryPhone 已打开');
+            var fallback = document.getElementById('st-story-phone-fallback');
+            if (document.getElementById('st-story-phone') && fallback) fallback.remove();
             var launcher = document.getElementById('st-story-phone-launcher');
             if (launcher) launcher.remove();
             setTimeout(function () {
