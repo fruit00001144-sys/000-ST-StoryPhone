@@ -34,6 +34,12 @@
         duplicateNodesRemoved: 0,
         storyPhoneStyleNodeCount: 0,
         lastUiBootError: null,
+        removedLegacyNodes: [],
+        skippedActiveRootChildren: [],
+        openPhoneBefore: null,
+        openPhoneAfter: null,
+        openValidationPassed: false,
+        openValidationError: null,
     };
 
     function describeNode(node) {
@@ -72,6 +78,11 @@
     }
 
     function syncLauncherDebug() {
+        var sharedDebug = window.STStoryPhoneLauncherDebug || {};
+        if ('openPhoneBefore' in sharedDebug) launcherDebug.openPhoneBefore = sharedDebug.openPhoneBefore;
+        if ('openPhoneAfter' in sharedDebug) launcherDebug.openPhoneAfter = sharedDebug.openPhoneAfter;
+        if ('openValidationPassed' in sharedDebug) launcherDebug.openValidationPassed = Boolean(sharedDebug.openValidationPassed);
+        if ('openValidationError' in sharedDebug) launcherDebug.openValidationError = sharedDebug.openValidationError || null;
         try {
             launcherDebug.storyPhoneStyleNodeCount = Array.prototype.filter.call(
                 document.querySelectorAll('style, link[rel="stylesheet"]'),
@@ -122,9 +133,18 @@
                 lastPointerTargetId: launcherDebug.lastPointerTargetId,
                 lastPointerTargetClass: launcherDebug.lastPointerTargetClass,
                 lastUiBootError: launcherDebug.lastUiBootError,
+                removedLegacyNodes: launcherDebug.removedLegacyNodes.slice(),
+                skippedActiveRootChildren: launcherDebug.skippedActiveRootChildren.slice(),
+                openPhoneBefore: launcherDebug.openPhoneBefore,
+                openPhoneAfter: launcherDebug.openPhoneAfter,
+                openValidationPassed: launcherDebug.openValidationPassed,
+                openValidationError: launcherDebug.openValidationError,
             };
         };
-        window.STStoryPhoneLauncherDebug = launcherDebug;
+        window.STStoryPhoneLauncherDebug = {
+            ...sharedDebug,
+            ...launcherDebug,
+        };
         return launcherDebug;
     }
 
@@ -149,8 +169,17 @@
 
     function removeLegacyDom(options) {
         var preserveNewRoot = options?.preserveNewRoot !== false;
-        var activeRoot = window.__STStoryPhoneApp?.ui?.root || null;
+        var activeRoot = window.__STStoryPhoneApp?.ui?.root
+            || document.querySelector('#st-story-phone')
+            || document.querySelector('#st-storyphone-root')
+            || null;
         var removed = 0;
+        var removedNodes = [];
+        var skippedNodes = [];
+        function shouldSkipNode(node) {
+            if (!preserveNewRoot || !activeRoot || !node) return false;
+            return node === activeRoot || activeRoot.contains(node);
+        }
         [
             '#st-story-phone-launcher',
             '#st-story-phone-fallback',
@@ -158,25 +187,46 @@
             '#st-story-phone-toast',
             '#st-storyphone-launcher',
             '#st-storyphone-root',
-            '#st-storyphone-modal',
             '.storyphone-launcher',
             '.storyphone-root',
             '.storyphone-modal',
             '.stp-boot-bubble',
         ].forEach(function (selector) {
             document.querySelectorAll(selector).forEach(function (node) {
+                if (shouldSkipNode(node)) {
+                    skippedNodes.push((selector + ':' + describeNode(node)));
+                    return;
+                }
                 node.remove();
+                removedNodes.push((selector + ':' + describeNode(node)));
                 removed += 1;
             });
         });
-        document.querySelectorAll('#st-story-phone, .stp-phone-shell').forEach(function (node, index) {
-            if (preserveNewRoot && activeRoot && node === activeRoot) return;
-            if (preserveNewRoot && node.id === 'st-story-phone' && index === 0 && window.__STStoryPhoneApp?.ui?.root === node) return;
+        document.querySelectorAll('#st-story-phone, #st-storyphone-root, .stp-phone-shell').forEach(function (node, index) {
+            if (shouldSkipNode(node)) {
+                skippedNodes.push(('root-scan:' + describeNode(node)));
+                return;
+            }
+            if (preserveNewRoot && node.id === 'st-story-phone' && index === 0 && window.__STStoryPhoneApp?.ui?.root === node) {
+                skippedNodes.push(('root-scan:' + describeNode(node)));
+                return;
+            }
             node.remove();
+            removedNodes.push(('root-scan:' + describeNode(node)));
             removed += 1;
         });
+        launcherDebug.removedLegacyNodes = removedNodes.slice(-80);
+        launcherDebug.skippedActiveRootChildren = skippedNodes.slice(-80);
         launcherDebug.legacyNodesRemoved += removed;
         launcherDebug.duplicateNodesRemoved += removed;
+        if (removedNodes.length || skippedNodes.length) {
+            console.debug('ST-StoryPhone removeLegacyDom', {
+                preserveNewRoot: Boolean(preserveNewRoot),
+                activeRoot: describeNode(activeRoot),
+                removedNodes,
+                skippedActiveRootChildren: skippedNodes,
+            });
+        }
         syncLauncherDebug();
         return removed;
     }

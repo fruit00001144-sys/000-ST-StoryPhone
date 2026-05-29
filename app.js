@@ -2561,9 +2561,11 @@ class PhoneUI {
         this.activeApp = 'home';
         this.selectedNpc = null;
         this.root = null;
+        this.modal = null;
         this.screen = null;
         this.isPhoneOpen = false;
         this.hasUserOpenedPhone = false;
+        this.launcherOpenLockUntil = 0;
     }
 
     getWechatContacts(profile = this.state.value.profile) {
@@ -2610,13 +2612,14 @@ class PhoneUI {
         storyPhoneRuntimeDebug.rootMounted = true;
         storyPhoneRuntimeDebug.modalMounted = true;
         this.screen = this.root.querySelector('.stp-screen');
+        this.modal = this.root.querySelector('.st-storyphone-modal');
         shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.closePhone());
         this.root.querySelector('.stp-bubble').addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation?.();
             if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
-            requestStoryPhoneOpen('new_launcher_click', () => this.openPhone());
+            this.openFromLauncher('new_launcher_click');
         }, true);
         this.bindDrag();
         this.bindEvents();
@@ -2632,6 +2635,10 @@ class PhoneUI {
         let startTop = 0;
         let pointerId = null;
         let moved = false;
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchMoved = false;
+        const dragThreshold = 6;
         bubble.style.touchAction = 'none';
         bubble.addEventListener('pointerdown', (event) => {
             pointerId = event.pointerId;
@@ -2643,14 +2650,12 @@ class PhoneUI {
             startLeft = parseInt(shell.style.left, 10) || rect.left;
             startTop = parseInt(shell.style.top, 10) || rect.top;
             bubble.setPointerCapture?.(pointerId);
-            event.preventDefault();
-            event.stopPropagation();
         });
         bubble.addEventListener('pointermove', (event) => {
             if (pointerId !== event.pointerId) return;
             const dx = event.clientX - startX;
             const dy = event.clientY - startY;
-            if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+            if (Math.abs(dx) + Math.abs(dy) > dragThreshold) moved = true;
             if (!moved) return;
             const position = clampLauncherPosition(startLeft + dx, startTop + dy, shell.offsetWidth || 48, shell.offsetHeight || 48);
             applyLauncherPosition(shell, position);
@@ -2662,13 +2667,39 @@ class PhoneUI {
             bubble.releasePointerCapture?.(pointerId);
             pointerId = null;
             rememberLauncherPosition(parseInt(shell.style.left, 10) || 22, parseInt(shell.style.top, 10) || 86);
-            if (moved) bubble.dataset.stpSuppressOpen = '1';
-            setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 0);
-            event.preventDefault();
-            event.stopPropagation();
+            if (moved) {
+                bubble.dataset.stpSuppressOpen = '1';
+                setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 120);
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            bubble.dataset.stpSuppressOpen = '1';
+            this.openFromLauncher('new_launcher_pointerup');
+            setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 360);
         };
         bubble.addEventListener('pointerup', finishDrag);
         bubble.addEventListener('pointercancel', finishDrag);
+        bubble.addEventListener('touchstart', (event) => {
+            const point = event.touches?.[0];
+            if (!point) return;
+            touchStartX = point.clientX;
+            touchStartY = point.clientY;
+            touchMoved = false;
+        }, { passive: true });
+        bubble.addEventListener('touchmove', (event) => {
+            const point = event.touches?.[0];
+            if (!point) return;
+            if (Math.abs(point.clientX - touchStartX) + Math.abs(point.clientY - touchStartY) > dragThreshold) {
+                touchMoved = true;
+            }
+        }, { passive: true });
+        bubble.addEventListener('touchend', () => {
+            if (touchMoved) return;
+            bubble.dataset.stpSuppressOpen = '1';
+            this.openFromLauncher('new_launcher_touchend');
+            setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 360);
+        }, true);
         bubble.addEventListener('click', (event) => {
             if (bubble.dataset.stpSuppressOpen) {
                 event.preventDefault();
@@ -2692,23 +2723,140 @@ class PhoneUI {
             .forEach((type) => events.on(type, refresh));
     }
 
+    openFromLauncher(source = 'new_launcher') {
+        const now = Date.now();
+        if (now < this.launcherOpenLockUntil) return false;
+        this.launcherOpenLockUntil = now + 320;
+        requestStoryPhoneOpen(source, () => this.openPhone());
+        return true;
+    }
+
+    rebuildPhoneDomIfNeeded() {
+        if (!this.root || !this.root.isConnected) return false;
+        let modal = this.root.querySelector('.st-storyphone-modal');
+        const bubble = this.root.querySelector('.stp-bubble');
+        if (!modal && bubble) {
+            modal = createElement('div', 'stp-phone st-storyphone-modal is-closed', '');
+            modal.id = 'st-storyphone-modal';
+            modal.setAttribute('aria-hidden', 'true');
+            modal.innerHTML = `
+                <div class="stp-phone-top">
+                    <span class="stp-signal">STORY 5G</span>
+                    <span class="stp-camera"></span>
+                    <button class="stp-mini" type="button" title="最小化">_</button>
+                </div>
+                <div class="stp-screen" role="region" aria-label="StoryPhone"></div>
+            `;
+            this.root.insertBefore(modal, bubble);
+        }
+        const screen = modal?.querySelector('.stp-screen') || this.root.querySelector('.stp-screen');
+        this.modal = modal || this.modal;
+        this.screen = screen || this.screen;
+        if (this.modal?.querySelector('.stp-mini')) {
+            shieldStoryPhonePointer(this.modal.querySelector('.stp-mini'), () => this.closePhone());
+        }
+        return Boolean(this.modal && this.modal.isConnected && this.screen && this.screen.isConnected);
+    }
+
+    failOpenValidation(reason, details = {}) {
+        const message = `[ST-StoryPhone] openPhone validation failed: ${reason}`;
+        storyPhoneRuntimeDebug.lastUiBootError = reason;
+        mergeStoryPhoneLauncherDebug({
+            openValidationPassed: false,
+            openValidationError: reason,
+            lastUiBootError: reason,
+            openPhoneAfter: {
+                rootClassName: this.root?.className || null,
+                modalDisplay: this.modal && this.modal.isConnected ? window.getComputedStyle(this.modal).display : null,
+                screenIsConnected: Boolean(this.screen?.isConnected),
+                ...details,
+            },
+        });
+        console.error(message, details);
+        this.closePhone();
+    }
+
     openPhone() {
-        if (!this.root) return;
+        const root = this.root;
+        this.modal = root?.querySelector('.st-storyphone-modal') || this.modal;
+        this.screen = root?.querySelector('.stp-screen') || this.screen;
+        const openPhoneBefore = {
+            rootExists: Boolean(root),
+            rootConnected: Boolean(root?.isConnected),
+            modalExists: Boolean(this.modal),
+            modalConnected: Boolean(this.modal?.isConnected),
+            screenExists: Boolean(this.screen),
+            screenConnected: Boolean(this.screen?.isConnected),
+        };
+        mergeStoryPhoneLauncherDebug({ openPhoneBefore });
+        console.debug('ST-StoryPhone openPhoneBefore', openPhoneBefore);
+        if (!root || !root.isConnected) {
+            this.failOpenValidation('root missing or disconnected', openPhoneBefore);
+            return;
+        }
+        if (!this.modal?.isConnected || !this.screen?.isConnected) {
+            const rebuilt = this.rebuildPhoneDomIfNeeded();
+            if (!rebuilt) {
+                this.failOpenValidation('modal or screen missing and rebuild failed', openPhoneBefore);
+                return;
+            }
+        }
+        const modal = this.modal;
+        const screen = this.screen;
+        if (!modal || !modal.isConnected || !screen || !screen.isConnected) {
+            this.failOpenValidation('modal or screen unavailable before open', openPhoneBefore);
+            return;
+        }
         markStoryPhoneNewUi('app.js:PhoneUI.openPhone');
-        const modal = this.root.querySelector('.st-storyphone-modal');
         this.isPhoneOpen = true;
         this.hasUserOpenedPhone = true;
-        this.root.classList.remove('stp-is-minimized');
-        this.root.classList.add('stp-is-open');
-        this.root.style.transform = 'translate(-50%, -50%)';
-        this.root.style.left = '50%';
-        this.root.style.top = '50%';
-        this.root.style.right = 'auto';
-        this.root.style.bottom = 'auto';
+        root.classList.remove('stp-is-minimized');
+        root.classList.add('stp-is-open');
+        root.style.transform = 'translate(-50%, -50%)';
+        root.style.left = '50%';
+        root.style.top = '50%';
+        root.style.right = 'auto';
+        root.style.bottom = 'auto';
         modal?.classList.add('is-open');
         modal?.classList.remove('is-closed');
         modal?.setAttribute('aria-hidden', 'false');
         this.render();
+        const modalStyle = modal?.isConnected ? window.getComputedStyle(modal) : null;
+        const modalRect = modal?.getBoundingClientRect?.();
+        const modalVisible = Boolean(
+            modalStyle
+            && modalStyle.display !== 'none'
+            && modalStyle.visibility !== 'hidden'
+            && (modalRect?.width || 0) > 0
+            && (modalRect?.height || 0) > 0
+        );
+        const openPhoneAfter = {
+            rootClassName: root.className,
+            modalDisplay: modalStyle?.display || null,
+            screenIsConnected: Boolean(screen?.isConnected),
+            modalConnected: Boolean(modal?.isConnected),
+            modalVisible,
+        };
+        mergeStoryPhoneLauncherDebug({ openPhoneAfter });
+        console.debug('ST-StoryPhone openPhoneAfter', openPhoneAfter);
+        const openValidationError = (
+            !modal ? 'modal missing after render'
+                : !modal.isConnected ? 'modal disconnected after render'
+                    : !screen ? 'screen missing after render'
+                        : !screen.isConnected ? 'screen disconnected after render'
+                            : modalStyle?.display === 'none' ? 'modal display none after render'
+                                : (root.classList.contains('stp-is-open') && !modalVisible) ? 'root open but modal not visible'
+                                    : null
+        );
+        if (openValidationError) {
+            this.failOpenValidation(openValidationError, openPhoneAfter);
+            return;
+        }
+        mergeStoryPhoneLauncherDebug({
+            openValidationPassed: true,
+            openValidationError: null,
+            lastUiBootError: null,
+        });
     }
 
     closePhone() {
