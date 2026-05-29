@@ -89,6 +89,7 @@
         if ('phoneDragEnded' in sharedDebug) launcherDebug.phoneDragEnded = sharedDebug.phoneDragEnded;
         if ('phoneDragHandleTarget' in sharedDebug) launcherDebug.phoneDragHandleTarget = sharedDebug.phoneDragHandleTarget;
         if ('phoneDragBlockedReason' in sharedDebug) launcherDebug.phoneDragBlockedReason = sharedDebug.phoneDragBlockedReason;
+        if ('phoneDragLastEvent' in sharedDebug) launcherDebug.phoneDragLastEvent = sharedDebug.phoneDragLastEvent;
         if ('closeButtonPointerDown' in sharedDebug) launcherDebug.closeButtonPointerDown = sharedDebug.closeButtonPointerDown;
         if ('closeButtonClicked' in sharedDebug) launcherDebug.closeButtonClicked = sharedDebug.closeButtonClicked;
         if ('closeButtonTopElementFromPoint' in sharedDebug) launcherDebug.closeButtonTopElementFromPoint = sharedDebug.closeButtonTopElementFromPoint;
@@ -155,6 +156,7 @@
                 phoneDragEnded: launcherDebug.phoneDragEnded || null,
                 phoneDragHandleTarget: launcherDebug.phoneDragHandleTarget || null,
                 phoneDragBlockedReason: launcherDebug.phoneDragBlockedReason || null,
+                phoneDragLastEvent: launcherDebug.phoneDragLastEvent || null,
                 closeButtonPointerDown: launcherDebug.closeButtonPointerDown || null,
                 closeButtonClicked: launcherDebug.closeButtonClicked || null,
                 closeButtonTopElementFromPoint: launcherDebug.closeButtonTopElementFromPoint || null,

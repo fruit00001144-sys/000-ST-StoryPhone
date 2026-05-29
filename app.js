@@ -306,20 +306,21 @@ function clearLauncherPosition() {
     safeStorageRemove(getLauncherPositionKey());
 }
 
-function getPhoneWindowPositionKey() {
-    return `${STORAGE_PREFIX}:phone_window_position`;
+function getPhoneWindowPositionKey(isMobile = false) {
+    return `${STORAGE_PREFIX}:phone_window_position${isMobile ? '_mobile' : ''}`;
 }
 
-function readPhoneWindowPosition() {
-    return safeStorageJson(getPhoneWindowPositionKey(), {});
+function readPhoneWindowPosition(isMobile = false) {
+    return safeStorageJson(getPhoneWindowPositionKey(isMobile), {});
 }
 
-function rememberPhoneWindowPosition(left, top) {
-    safeStorageSet(getPhoneWindowPositionKey(), JSON.stringify({ left, top }));
+function rememberPhoneWindowPosition(left, top, isMobile = false) {
+    safeStorageSet(getPhoneWindowPositionKey(isMobile), JSON.stringify({ left, top }));
 }
 
 function clearPhoneWindowPosition() {
-    safeStorageRemove(getPhoneWindowPositionKey());
+    safeStorageRemove(getPhoneWindowPositionKey(false));
+    safeStorageRemove(getPhoneWindowPositionKey(true));
 }
 
 function clampLauncherPosition(left, top, width = 48, height = 48) {
@@ -329,10 +330,12 @@ function clampLauncherPosition(left, top, width = 48, height = 48) {
     };
 }
 
-function clampPhoneWindowPosition(left, top, width = 420, height = 760, visiblePixels = 40) {
+function clampPhoneWindowPosition(left, top, width = 420, height = 760, visiblePixels = 40, strictTop = false) {
+    const minTop = strictTop ? 0 : (visiblePixels - height);
+    const maxTop = strictTop ? (window.innerHeight - Math.min(56, height)) : (window.innerHeight - visiblePixels);
     return {
         left: Math.max(visiblePixels - width, Math.min(window.innerWidth - visiblePixels, left)),
-        top: Math.max(visiblePixels - height, Math.min(window.innerHeight - visiblePixels, top)),
+        top: Math.max(minTop, Math.min(maxTop, top)),
     };
 }
 
@@ -2600,6 +2603,8 @@ class PhoneUI {
         this.launcherOpenLockUntil = 0;
         this.phoneDragPointerId = null;
         this.phoneDragMoved = false;
+        this.phoneDragLastEvent = null;
+        this.scrollTestEnabled = {};
     }
 
     getWechatContacts(profile = this.state.value.profile) {
@@ -2786,7 +2791,7 @@ class PhoneUI {
 
     bindPhoneWindowDrag() {
         const shell = this.root;
-        const handle = this.root.querySelector('.stp-drag-handle') || this.root.querySelector('.stp-phone-top');
+        const handle = this.root.querySelector('.stp-phone-top');
         if (!shell || !handle) return;
         if (handle.__stpPhoneDragBound) return;
         handle.__stpPhoneDragBound = true;
@@ -2795,20 +2800,46 @@ class PhoneUI {
         let startY = 0;
         let startLeft = 0;
         let startTop = 0;
-        const dragThreshold = 6;
-        handle.addEventListener('pointerdown', (event) => {
+        let dragThreshold = 6;
+        const updateDebug = (patch = {}) => {
+            this.phoneDragLastEvent = {
+                ...this.phoneDragLastEvent,
+                ...patch,
+            };
             mergeStoryPhoneLauncherDebug({
-                phoneDragPointerDown: Date.now(),
-                phoneDragHandleTarget: describeDomNode(event.target),
+                phoneDragLastEvent: this.phoneDragLastEvent,
+                ...patch,
             });
-            if (this.isMobileViewport()) {
-                mergeStoryPhoneLauncherDebug({ phoneDragBlockedReason: 'mobile_disabled' });
-                return;
-            }
+        };
+        handle.addEventListener('pointerdown', (event) => {
+            const targetSelector = describeDomNode(event.target);
+            updateDebug({
+                phoneDragPointerDown: Date.now(),
+                phoneDragHandleTarget: targetSelector,
+                targetSelector,
+            });
+            console.debug('ST-StoryPhone phone drag down', {
+                phoneDragPointerDown: Date.now(),
+                targetSelector,
+                blockedReason: null,
+            });
             if (event.target?.closest?.('.stp-mini,button,input,textarea,select,label,a')) {
-                mergeStoryPhoneLauncherDebug({ phoneDragBlockedReason: 'interactive_child' });
+                updateDebug({ phoneDragBlockedReason: 'interactive_child' });
+                console.debug('ST-StoryPhone phone drag blocked', {
+                    blockedReason: 'interactive_child',
+                    targetSelector,
+                });
                 return;
             }
+            if (!event.target?.closest?.('.stp-phone-top, .stp-drag-handle')) {
+                updateDebug({ phoneDragBlockedReason: 'outside_handle' });
+                console.debug('ST-StoryPhone phone drag blocked', {
+                    blockedReason: 'outside_handle',
+                    targetSelector,
+                });
+                return;
+            }
+            dragThreshold = this.isMobileViewport() ? 8 : 6;
             this.phoneDragPointerId = event.pointerId;
             this.phoneDragMoved = false;
             const rect = shell.getBoundingClientRect();
@@ -2818,27 +2849,46 @@ class PhoneUI {
             startTop = rect.top;
             handle.setPointerCapture?.(event.pointerId);
             shell.classList.add('stp-is-dragging');
+            updateDebug({
+                phoneDragStarted: false,
+                phoneDragBlockedReason: null,
+            });
         });
         handle.addEventListener('pointermove', (event) => {
             if (this.phoneDragPointerId !== event.pointerId) return;
-            if (this.isMobileViewport()) return;
             const dx = event.clientX - startX;
             const dy = event.clientY - startY;
             if (Math.abs(dx) + Math.abs(dy) > dragThreshold) this.phoneDragMoved = true;
             if (!this.phoneDragMoved) return;
-            mergeStoryPhoneLauncherDebug({
+            updateDebug({
                 phoneDragStarted: true,
                 phoneDragMoved: { dx, dy },
             });
+            console.debug('ST-StoryPhone phone drag start', {
+                phoneDragStarted: true,
+                phoneDragMoved: { dx, dy },
+                targetSelector: describeDomNode(event.target),
+                blockedReason: null,
+            });
             const width = shell.offsetWidth || 420;
             const height = shell.offsetHeight || 760;
-            const position = clampPhoneWindowPosition(startLeft + dx, startTop + dy, width, height, 40);
+            const position = clampPhoneWindowPosition(startLeft + dx, startTop + dy, width, height, 40, this.isMobileViewport());
             shell.classList.add('stp-is-dragged');
             shell.style.transform = 'none';
             shell.style.left = `${position.left}px`;
             shell.style.top = `${position.top}px`;
             shell.style.right = 'auto';
             shell.style.bottom = 'auto';
+            updateDebug({
+                appliedLeft: position.left,
+                appliedTop: position.top,
+            });
+            console.debug('ST-StoryPhone phone drag move', {
+                phoneDragMoved: { dx, dy },
+                appliedLeft: position.left,
+                appliedTop: position.top,
+                targetSelector: describeDomNode(event.target),
+            });
             event.preventDefault();
             event.stopPropagation();
         });
@@ -2848,22 +2898,40 @@ class PhoneUI {
             this.phoneDragPointerId = null;
             shell.classList.remove('stp-is-dragging');
             if (!this.phoneDragMoved) {
-                mergeStoryPhoneLauncherDebug({ phoneDragEnded: 'no_move' });
+                updateDebug({
+                    phoneDragEnded: 'no_move',
+                    blockedReason: 'below_threshold',
+                });
+                console.debug('ST-StoryPhone phone drag end', {
+                    phoneDragEnded: 'no_move',
+                    blockedReason: 'below_threshold',
+                    targetSelector: describeDomNode(event.target),
+                });
                 return;
             }
             const width = shell.offsetWidth || 420;
             const height = shell.offsetHeight || 760;
             const currentLeft = parseInt(shell.style.left, 10) || shell.getBoundingClientRect().left;
             const currentTop = parseInt(shell.style.top, 10) || shell.getBoundingClientRect().top;
-            const position = clampPhoneWindowPosition(currentLeft, currentTop, width, height, 40);
+            const position = clampPhoneWindowPosition(currentLeft, currentTop, width, height, 40, this.isMobileViewport());
             shell.style.left = `${position.left}px`;
             shell.style.top = `${position.top}px`;
-            rememberPhoneWindowPosition(position.left, position.top);
-            mergeStoryPhoneLauncherDebug({
+            const mobile = this.isMobileViewport();
+            rememberPhoneWindowPosition(position.left, position.top, mobile);
+            updateDebug({
                 phoneDragEnabled: true,
                 phoneDragPosition: position,
                 phoneDragEnded: Date.now(),
                 phoneDragBlockedReason: null,
+                appliedLeft: position.left,
+                appliedTop: position.top,
+            });
+            console.debug('ST-StoryPhone phone drag end', {
+                phoneDragEnded: Date.now(),
+                appliedLeft: position.left,
+                appliedTop: position.top,
+                targetSelector: describeDomNode(event.target),
+                blockedReason: null,
             });
             event.preventDefault();
             event.stopPropagation();
@@ -2875,20 +2943,12 @@ class PhoneUI {
     applyOpenLayout() {
         const root = this.root;
         if (!root) return;
-        if (this.isMobileViewport()) {
-            root.classList.remove('stp-is-dragged');
-            root.style.transform = 'none';
-            root.style.left = '6px';
-            root.style.top = '6px';
-            root.style.right = 'auto';
-            root.style.bottom = 'auto';
-            return;
-        }
-        const saved = readPhoneWindowPosition();
+        const mobile = this.isMobileViewport();
+        const saved = readPhoneWindowPosition(mobile);
         if (typeof saved.left === 'number' && typeof saved.top === 'number') {
             const width = root.offsetWidth || 420;
             const height = root.offsetHeight || 760;
-            const clamped = clampPhoneWindowPosition(saved.left, saved.top, width, height, 40);
+            const clamped = clampPhoneWindowPosition(saved.left, saved.top, width, height, 40, mobile);
             root.classList.add('stp-is-dragged');
             root.style.transform = 'none';
             root.style.left = `${clamped.left}px`;
@@ -2896,6 +2956,15 @@ class PhoneUI {
             root.style.right = 'auto';
             root.style.bottom = 'auto';
             mergeStoryPhoneLauncherDebug({ phoneDragPosition: clamped });
+            return;
+        }
+        if (mobile) {
+            root.classList.remove('stp-is-dragged');
+            root.style.transform = 'none';
+            root.style.left = '6px';
+            root.style.top = '6px';
+            root.style.right = 'auto';
+            root.style.bottom = 'auto';
             return;
         }
         root.classList.remove('stp-is-dragged');
@@ -3032,8 +3101,8 @@ class PhoneUI {
             screenIsConnected: Boolean(screen?.isConnected),
             modalConnected: Boolean(modal?.isConnected),
             modalVisible,
-            phoneDragEnabled: !this.isMobileViewport(),
-            phoneDragPosition: readPhoneWindowPosition(),
+            phoneDragEnabled: true,
+            phoneDragPosition: readPhoneWindowPosition(this.isMobileViewport()),
             launcherDragPosition: readLauncherPosition(),
         };
         mergeStoryPhoneLauncherDebug({ openPhoneAfter });
@@ -3096,11 +3165,85 @@ class PhoneUI {
         if (this.activeApp === 'entries') this.renderPhoneEntries();
         if (this.activeApp === 'debug') this.renderDebugPanel();
         if (this.activeApp === 'settings') this.renderSettings();
+        this.ensureScrollTestContent(this.getActiveAppScrollableContainer(), this.activeApp);
     }
 
     setApp(app) {
         this.activeApp = app;
         this.render();
+    }
+
+    fillScrollTestContent(appName = this.activeApp) {
+        const key = String(appName || this.activeApp || 'home');
+        this.scrollTestEnabled[key] = true;
+        if (key === this.activeApp) this.render();
+        return { app: key, enabled: true };
+    }
+
+    clearScrollTestContent(appName = this.activeApp) {
+        const key = String(appName || this.activeApp || 'home');
+        delete this.scrollTestEnabled[key];
+        if (key === this.activeApp) this.render();
+        return { app: key, enabled: false };
+    }
+
+    ensureScrollTestContent(container, appName = this.activeApp) {
+        if (!container) return;
+        const key = String(appName || this.activeApp || 'home');
+        container.querySelector('.stp-scroll-test-fill')?.remove();
+        if (!this.scrollTestEnabled[key]) return;
+        const fill = createElement('div', 'stp-scroll-test-fill stp-card-list compact');
+        for (let i = 1; i <= 28; i += 1) {
+            const card = createElement('div', 'stp-list-card', '');
+            card.innerHTML = `<b>Scroll Test ${i}</b><p>Mock long content for ${escapeHtml(key)} page. This is temporary UI-only filler.</p>`;
+            fill.append(card);
+        }
+        container.append(fill);
+    }
+
+    getActiveAppScrollableContainer() {
+        const screen = this.screen;
+        if (!screen) return null;
+        const candidates = Array.from(screen.querySelectorAll('.stp-app-content, .stp-card-list, .stp-messages, .stp-wechat-list-screen, .stp-feed-list, .stp-chat-pane'));
+        const scrollable = candidates
+            .filter((node) => node && node.scrollHeight >= node.clientHeight)
+            .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0];
+        return scrollable || screen.querySelector('.stp-app-content') || screen;
+    }
+
+    getLayoutTrace() {
+        const root = this.root;
+        const modal = this.modal || root?.querySelector?.('.st-storyphone-modal');
+        const screen = this.screen || root?.querySelector?.('.stp-screen');
+        const handle = root?.querySelector?.('.stp-drag-handle') || root?.querySelector?.('.stp-phone-top');
+        const appContent = this.getActiveAppScrollableContainer();
+        const modalRect = modal?.getBoundingClientRect?.();
+        const rootRect = root?.getBoundingClientRect?.();
+        const screenRect = screen?.getBoundingClientRect?.();
+        const handleRect = handle?.getBoundingClientRect?.();
+        const position = readPhoneWindowPosition(this.isMobileViewport());
+        return {
+            isMobileViewport: this.isMobileViewport(),
+            phoneDragEnabled: Boolean(this.isPhoneOpen),
+            phoneDragHandleExists: Boolean(handle),
+            phoneDragHandleRect: handleRect ? {
+                left: handleRect.left,
+                top: handleRect.top,
+                width: handleRect.width,
+                height: handleRect.height,
+            } : null,
+            phoneDragLastEvent: this.phoneDragLastEvent,
+            phoneDragAppliedPosition: position,
+            phoneWindowPosition: position,
+            activeApp: this.activeApp,
+            appContentScrollable: Boolean(appContent && appContent.scrollHeight > appContent.clientHeight),
+            appContentScrollHeight: appContent?.scrollHeight || 0,
+            appContentClientHeight: appContent?.clientHeight || 0,
+            appContentOverflowY: appContent ? window.getComputedStyle(appContent).overflowY : null,
+            modalRect: modalRect ? { left: modalRect.left, top: modalRect.top, width: modalRect.width, height: modalRect.height } : null,
+            rootRect: rootRect ? { left: rootRect.left, top: rootRect.top, width: rootRect.width, height: rootRect.height } : null,
+            screenRect: screenRect ? { left: screenRect.left, top: screenRect.top, width: screenRect.width, height: screenRect.height } : null,
+        };
     }
 
     nav(title) {
@@ -3135,6 +3278,8 @@ class PhoneUI {
 
     renderHome(profile) {
         this.screen.innerHTML = '';
+        const wrap = createElement('div', 'stp-app');
+        const content = createElement('div', 'stp-app-content');
         const hero = createElement('div', 'stp-home-hero');
         hero.innerHTML = `
             <div class="stp-logo">Phoning<br>Phone</div>
@@ -3160,14 +3305,16 @@ class PhoneUI {
             button.addEventListener('click', () => this.setApp(app));
             grid.append(button);
         });
-        this.screen.append(hero, grid);
+        content.append(hero, grid);
+        wrap.append(content);
+        this.screen.append(wrap);
     }
 
     renderWechat(profile) {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app stp-wechat-app');
         wrap.append(this.nav('微信'));
-        const body = createElement('div', 'stp-wechat-body');
+        const body = createElement('div', 'stp-wechat-body stp-app-content');
         const activeTab = this.wechatTab || 'chats';
 
         if (activeTab === 'discover') {
@@ -3477,6 +3624,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('群聊'));
+        const content = createElement('div', 'stp-app-content');
         const groups = asArray(profile.groups);
         const list = createElement('div', 'stp-card-list compact');
         if (!this.selectedGroup && groups[0]) this.selectedGroup = groups[0].id;
@@ -3521,7 +3669,8 @@ class PhoneUI {
             form.querySelector('[data-generate]').addEventListener('click', () => this.generateGroupReply(current));
             pane.append(createElement('h3', '', current.name || current.id), messages, form);
         }
-        wrap.append(list, pane);
+        content.append(list, pane);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -3716,6 +3865,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.navWithAction('朋友圈', '+', () => this.setApp('momentCompose')));
+        const content = createElement('div', 'stp-app-content');
         const tools = createElement('div', 'stp-feed-toolbar');
         const refresh = createElement('button', 'stp-icon-action', '刷新');
         refresh.type = 'button';
@@ -3724,7 +3874,8 @@ class PhoneUI {
         const feed = createElement('div', 'stp-card-list stp-moments-list stp-feed-list');
         this.state.value.phone.moments.forEach((post) => feed.append(this.renderSocialCard(post, 'moment')));
         if (!this.state.value.phone.moments.length) feed.append(createElement('p', 'stp-empty', '还没有朋友圈动态。右上角 + 发布，刷新可生成 NPC 动态。'));
-        wrap.append(tools, feed);
+        content.append(tools, feed);
+        wrap.append(content);
         this.screen.append(wrap);
         return;
         wrap.append(this.nav('朋友圈'));
@@ -3743,10 +3894,12 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app stp-compose-page');
         wrap.append(this.navWithAction('发朋友圈', '取消', () => this.setApp('moments')));
+        const content = createElement('div', 'stp-app-content');
         const header = createElement('div', 'stp-compose-hero');
         header.innerHTML = '<b>这一刻的心情</b><small>可设置公开、仅谁可见、仅谁不可见；这里发布的内容只进入手机事件记忆。</small>';
         const composer = this.createSocialComposerV2('moment');
-        wrap.append(header, composer);
+        content.append(header, composer);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -3785,6 +3938,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.navWithAction(profile.forum?.name || '论坛', '+', () => this.setApp('forumCompose')));
+        const content = createElement('div', 'stp-app-content');
         const tools = createElement('div', 'stp-feed-toolbar');
         const refresh = createElement('button', 'stp-icon-action', '刷新');
         refresh.type = 'button';
@@ -3793,7 +3947,8 @@ class PhoneUI {
         const feed = createElement('div', 'stp-card-list stp-thread-feed stp-feed-list');
         this.state.value.phone.forumPosts.forEach((post) => feed.append(this.renderSocialCard(post, 'forum')));
         if (!this.state.value.phone.forumPosts.length) feed.append(createElement('p', 'stp-empty', '论坛还没有帖子。右上角 + 发帖，刷新可生成公开帖子。'));
-        wrap.append(tools, feed);
+        content.append(tools, feed);
+        wrap.append(content);
         this.screen.append(wrap);
         return;
         wrap.append(this.nav(profile.forum?.name || '论坛'));
@@ -3812,10 +3967,12 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app stp-compose-page');
         wrap.append(this.navWithAction('发布帖子', '取消', () => this.setApp('forum')));
+        const content = createElement('div', 'stp-app-content');
         const header = createElement('div', 'stp-compose-hero');
         header.innerHTML = `<b>${escapeHtml(profile.forum?.name || '论坛')}</b><small>发帖会作为 public 手机事件写入统一 eventLog；具体 NPC 是否知道仍由可见性和习惯判断。</small>`;
         const composer = this.createSocialComposerV2('forum');
-        wrap.append(header, composer);
+        content.append(header, composer);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -3824,8 +3981,10 @@ class PhoneUI {
         const post = asArray(this.state.value.phone.forumPosts).find((item) => item.id === this.selectedForumPost);
         const wrap = createElement('div', 'stp-app stp-thread-detail-page');
         wrap.append(this.navWithAction('帖子', '', () => {}, () => this.setApp('forum')));
+        const content = createElement('div', 'stp-app-content');
         if (!post) {
-            wrap.append(createElement('p', 'stp-empty', '帖子不存在或已删除。'));
+            content.append(createElement('p', 'stp-empty', '帖子不存在或已删除。'));
+            wrap.append(content);
             this.screen.append(wrap);
             return;
         }
@@ -3838,7 +3997,8 @@ class PhoneUI {
             replies.append(row);
         });
         if (!asArray(post.comments).length) replies.append(createElement('p', 'stp-empty', '还没有回复。'));
-        wrap.append(detail, replies);
+        content.append(detail, replies);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -3992,6 +4152,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('日历'));
+        const content = createElement('div', 'stp-app-content');
         const form = createElement('form', 'stp-editor');
         form.innerHTML = `
             <input name="time" placeholder="时间，例如 今天 18:00" />
@@ -4014,7 +4175,8 @@ class PhoneUI {
         const currentTime = createElement('div', 'stp-note', `剧情时间：${this.state.value.time || '未设定'} / 地点：${this.state.value.location || '未设定'}`);
         this.state.value.phone.calendar.forEach((item) => list.append(createElement('div', 'stp-list-card', `${item.time || '未定'}｜${item.title}`)));
         if (!this.state.value.phone.calendar.length) list.append(createElement('p', 'stp-empty', '暂无日程。可记录今日安排和未来暗线。'));
-        wrap.append(currentTime, form, list);
+        content.append(currentTime, form, list);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4022,6 +4184,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('备忘录'));
+        const content = createElement('div', 'stp-app-content');
         const form = createElement('form', 'stp-editor');
         form.innerHTML = `
             <textarea name="memo" rows="3" placeholder="新增线索、备忘、用户知道的信息..."></textarea>
@@ -4045,7 +4208,8 @@ class PhoneUI {
             list.append(card);
         });
         if (!this.state.value.phone.memos.length) list.append(createElement('p', 'stp-empty', '暂无备忘录。'));
-        wrap.append(form, list);
+        content.append(form, list);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4053,6 +4217,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('角色侧屏'));
+        const content = createElement('div', 'stp-app-content');
         const notice = createElement('div', 'stp-note', '玩家可见的信息面板，不等于 {{user}} 已知。默认内容是 player_visible / char_private；同步给 {{user}} 必须填写剧情原因。');
         const action = createElement('button', 'stp-wide-action', '生成角色侧屏碎片');
         action.type = 'button';
@@ -4077,7 +4242,8 @@ class PhoneUI {
             list.append(card);
         });
         if (!list.children.length) list.append(createElement('p', 'stp-empty', '尚未生成目标角色手机内容。'));
-        wrap.append(notice, action, list);
+        content.append(notice, action, list);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4287,6 +4453,7 @@ class PhoneUI {
             ['Profile: group with host', () => this.runProfileGroupTest(true)],
             ['Profile: selected moments', () => this.runProfileMomentSelectedTest()],
             ['Profile: contact self-check', () => this.getProfileContactDiagnostics()],
+            ['填充当前页测试内容', () => this.fillScrollTestContent(this.activeApp)],
         ].forEach(([label, fn]) => {
             const button = createElement('button', 'stp-pixel-button ghost', label);
             button.type = 'button';
@@ -4847,9 +5014,11 @@ function bootSelfCheck() {
         visualWidth: window.visualViewport?.width || null,
         visualHeight: window.visualViewport?.height || null,
     };
-    const phoneDragPosition = readPhoneWindowPosition();
-    const launcherDragPosition = readLauncherPosition();
     const isMobileViewport = window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+    const phoneDragPosition = readPhoneWindowPosition(isMobileViewport);
+    const phoneDragPositionDesktop = readPhoneWindowPosition(false);
+    const phoneDragPositionMobile = readPhoneWindowPosition(true);
+    const launcherDragPosition = readLauncherPosition();
     const rectToPlain = (rect) => (rect ? ({
         x: Math.round(rect.x),
         y: Math.round(rect.y),
@@ -4912,8 +5081,10 @@ function bootSelfCheck() {
         rootRect: rectToPlain(rootRect),
         computedPhoneWidth: phoneStyles?.width || null,
         computedPhoneHeight: phoneStyles?.height || null,
-        phoneDragEnabled: Boolean(appUi?.isPhoneOpen) && !isMobileViewport,
+        phoneDragEnabled: Boolean(appUi?.isPhoneOpen),
         phoneDragPosition,
+        phoneDragPositionDesktop,
+        phoneDragPositionMobile,
         launcherDragPosition,
         phoneDragPointerDown: launcherDebug.phoneDragPointerDown || null,
         phoneDragStarted: launcherDebug.phoneDragStarted || null,
@@ -5036,6 +5207,8 @@ globalThis.STStoryPhoneDebug = {
     resetUi: forceResetStoryPhoneUiState,
     bootSelfCheck,
     open: (source = 'debug_api') => requestStoryPhoneOpen(source, () => globalThis.__STStoryPhoneApp?.ui?.openPhone?.()),
+    fillScrollTestContent: (appName) => globalThis.__STStoryPhoneApp?.ui?.fillScrollTestContent?.(appName),
+    getLayoutTrace: () => globalThis.__STStoryPhoneApp?.ui?.getLayoutTrace?.() || null,
     inspectPoint: (x, y) => {
         const pointX = Number(x);
         const pointY = Number(y);

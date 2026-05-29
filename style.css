@@ -977,6 +977,12 @@
     z-index: 1;
     cursor: grab;
     pointer-events: auto;
+    touch-action: none;
+}
+
+.stp-signal,
+.stp-camera {
+    pointer-events: none;
 }
 
 .stp-camera {
@@ -1139,6 +1145,11 @@
     overscroll-behavior: contain;
     padding: 10px 10px 18px;
     box-sizing: border-box;
+}
+
+.stp-wechat-body.stp-app-content {
+    padding: 0;
+    overflow: hidden;
 }
 
 .stp-settings-page .stp-settings {
@@ -2112,6 +2123,18 @@
     -webkit-overflow-scrolling: touch;
 }
 
+#st-story-phone .stp-screen {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#st-story-phone .stp-screen > .stp-app {
+    flex: 1;
+    min-height: 0;
+}
+
 #st-story-phone.stp-phone-shell.stp-is-open.stp-is-dragged {
     inset: auto auto auto auto !important;
     right: auto !important;
@@ -2176,8 +2199,9 @@
     }
 
     #st-story-phone .stp-drag-handle {
-        pointer-events: none;
-        cursor: default;
+        pointer-events: auto;
+        cursor: grab;
+        touch-action: none;
     }
 
     #st-story-phone .stp-app-grid {
