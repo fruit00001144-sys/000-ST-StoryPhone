@@ -4,7 +4,7 @@ import stGetContext from '../../../st-context.js';
 
 const EXTENSION_ID = 'ST-StoryPhone';
 const EXTENSION_ALIAS = 'ST-PhoningPhone';
-const STORYPHONE_VERSION = '0.4.7';
+const STORYPHONE_VERSION = '0.4.8';
 const EXTENSION_VERSION = STORYPHONE_VERSION;
 const STORAGE_PREFIX = 'st_story_phone';
 const STORYPHONE_VERSION_KEY = `${STORAGE_PREFIX}:storyPhoneVersion`;
