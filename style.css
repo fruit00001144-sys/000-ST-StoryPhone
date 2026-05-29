@@ -63,18 +63,17 @@
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    max-width: calc(100vw - 12px);
-    max-height: calc(100vh - 12px);
-    max-height: calc(100dvh - 12px);
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
 }
 
 .stp-phone-shell:not(.stp-is-minimized) .stp-phone {
-    width: min(calc(100vw - 12px), 760px);
-    height: min(calc(100vh - 12px), 820px);
-    height: min(calc(100dvh - 12px), 820px);
-    max-width: calc(100vw - 12px);
-    max-height: calc(100vh - 12px);
-    max-height: calc(100dvh - 12px);
+    width: clamp(390px, 42vw, 620px);
+    height: clamp(620px, 82vh, 860px);
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
 }
 
 .stp-screen,
@@ -999,6 +998,7 @@
         linear-gradient(180deg, #f8fdff 0%, #fff5fb 52%, #fffbea 100%);
     background-size: 18px 18px, 18px 18px, auto;
     overflow: auto;
+    overscroll-behavior: contain;
     padding: 14px;
 }
 
@@ -1107,6 +1107,7 @@
     display: flex;
     height: 100%;
     min-height: 100%;
+    min-width: 0;
     flex-direction: column;
     overflow: hidden;
     background: #f5f5f5;
@@ -2040,31 +2041,32 @@
     inset: 50% auto auto 50% !important;
     right: auto !important;
     bottom: auto !important;
-    width: min(calc(100vw - 12px), 760px) !important;
-    height: min(calc(100vh - 12px), 820px) !important;
-    max-width: calc(100vw - 12px) !important;
-    max-height: calc(100vh - 12px) !important;
+    width: clamp(390px, 42vw, 620px) !important;
+    height: clamp(620px, 82vh, 860px) !important;
+    max-width: calc(100vw - 32px) !important;
+    max-height: calc(100vh - 32px) !important;
     transform: translate(-50%, -50%) !important;
 }
 
 @supports (height: 100dvh) {
     #st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
-        height: min(calc(100dvh - 12px), 820px) !important;
-        max-height: calc(100dvh - 12px) !important;
+        height: clamp(620px, 82dvh, 860px) !important;
+        max-height: calc(100dvh - 32px) !important;
     }
 }
 
 #st-story-phone.stp-phone-shell:not(.stp-is-minimized) .stp-phone {
     width: 100% !important;
     height: 100% !important;
-    max-width: calc(100vw - 12px) !important;
-    max-height: calc(100vh - 12px) !important;
+    max-width: calc(100vw - 32px) !important;
+    max-height: calc(100vh - 32px) !important;
     overflow: hidden;
+    overscroll-behavior: contain;
 }
 
 @supports (height: 100dvh) {
     #st-story-phone.stp-phone-shell:not(.stp-is-minimized) .stp-phone {
-        max-height: calc(100dvh - 12px) !important;
+        max-height: calc(100dvh - 32px) !important;
     }
 }
 
@@ -2075,4 +2077,69 @@
 #st-story-phone .stp-wechat-list-screen,
 #st-story-phone .stp-feed-list {
     -webkit-overflow-scrolling: touch;
+}
+
+#st-story-phone.stp-phone-shell.stp-is-open.stp-is-dragged {
+    inset: auto auto auto auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+}
+
+#st-story-phone .stp-app-grid {
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)) !important;
+    gap: 12px !important;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#st-story-phone .stp-app-icon {
+    width: 100%;
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    #st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
+        inset: auto !important;
+        left: 6px !important;
+        top: 6px !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: calc(100vw - 12px) !important;
+        height: calc(100vh - 12px) !important;
+        max-width: calc(100vw - 12px) !important;
+        max-height: calc(100vh - 12px) !important;
+        transform: none !important;
+    }
+
+    @supports (height: 100dvh) {
+        #st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
+            height: calc(100dvh - 12px) !important;
+            max-height: calc(100dvh - 12px) !important;
+        }
+    }
+
+    #st-story-phone .stp-phone {
+        width: 100% !important;
+        height: 100% !important;
+        max-width: calc(100vw - 12px) !important;
+        max-height: calc(100vh - 12px) !important;
+    }
+
+    @supports (height: 100dvh) {
+        #st-story-phone .stp-phone {
+            max-height: calc(100dvh - 12px) !important;
+        }
+    }
+
+    #st-story-phone .stp-phone-top {
+        cursor: default;
+        touch-action: pan-y;
+    }
+
+    #st-story-phone .stp-app-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+    }
 }
