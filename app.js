@@ -269,6 +269,65 @@ function markStoryPhoneNewUi(activeLauncherFunction = 'app.js:PhoneUI.mount') {
     };
 }
 
+function getStoryPhoneLauncherDebug() {
+    return globalThis.STStoryPhoneLauncherDebug || {};
+}
+
+function mergeStoryPhoneLauncherDebug(patch = {}) {
+    globalThis.STStoryPhoneLauncherDebug = {
+        ...getStoryPhoneLauncherDebug(),
+        ...patch,
+    };
+    return globalThis.STStoryPhoneLauncherDebug;
+}
+
+function requestStoryPhoneOpen(source, fallbackOpen) {
+    mergeStoryPhoneLauncherDebug({ openSource: source || 'app_unknown' });
+    if (typeof globalThis.STStoryPhoneOpenNewUI === 'function') {
+        return globalThis.STStoryPhoneOpenNewUI(source || 'app_unknown');
+    }
+    if (typeof fallbackOpen === 'function') return fallbackOpen();
+    return null;
+}
+
+function getLauncherPositionKey() {
+    return `${STORAGE_PREFIX}:launcher_position`;
+}
+
+function readLauncherPosition() {
+    return safeStorageJson(getLauncherPositionKey(), {});
+}
+
+function rememberLauncherPosition(left, top) {
+    safeStorageSet(getLauncherPositionKey(), JSON.stringify({ left, top }));
+}
+
+function clearLauncherPosition() {
+    safeStorageRemove(getLauncherPositionKey());
+}
+
+function clampLauncherPosition(left, top, width = 48, height = 48) {
+    return {
+        left: Math.max(4, Math.min(window.innerWidth - width - 4, left)),
+        top: Math.max(48, Math.min(window.innerHeight - height - 4, top)),
+    };
+}
+
+function applyLauncherPosition(shell, preferred) {
+    if (!shell) return;
+    const width = shell.offsetWidth || 48;
+    const height = shell.offsetHeight || 48;
+    const saved = preferred && typeof preferred === 'object' ? preferred : readLauncherPosition();
+    const initialLeft = typeof saved.left === 'number' ? saved.left : Math.max(12, window.innerWidth - width - 24);
+    const initialTop = typeof saved.top === 'number' ? saved.top : Math.max(56, Math.min(window.innerHeight - height - 120, 104));
+    const clamped = clampLauncherPosition(initialLeft, initialTop, width, height);
+    shell.style.left = `${clamped.left}px`;
+    shell.style.top = `${clamped.top}px`;
+    shell.style.right = 'auto';
+    shell.style.bottom = 'auto';
+    shell.style.transform = 'none';
+}
+
 function clampText(text, max = 1200) {
     if (!text) return '';
     const value = String(text);
@@ -550,11 +609,11 @@ function mountBootBubble() {
     bubble.id = 'st-story-phone-boot-bubble';
     bubble.type = 'button';
     bubble.title = 'ST-StoryPhone 正在启动';
-    shieldStoryPhonePointer(bubble, () => bootStoryPhone());
+    shieldStoryPhonePointer(bubble, () => requestStoryPhoneOpen('boot_bubble', () => bootStoryPhone()));
     bubble.addEventListener('pointerdown', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        bootStoryPhone();
+        requestStoryPhoneOpen('boot_bubble_pointerdown', () => bootStoryPhone());
     }, true);
     document.body.appendChild(bubble);
     storyPhoneRuntimeDebug.launcherMounted = true;
@@ -2547,6 +2606,7 @@ class PhoneUI {
             <button class="stp-bubble" type="button" title="打开 StoryPhone">Phone</button>
         `;
         document.body.appendChild(this.root);
+        applyLauncherPosition(this.root);
         storyPhoneRuntimeDebug.rootMounted = true;
         storyPhoneRuntimeDebug.modalMounted = true;
         this.screen = this.root.querySelector('.stp-screen');
@@ -2556,13 +2616,7 @@ class PhoneUI {
             event.stopPropagation();
             event.stopImmediatePropagation?.();
             if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
-            this.openPhone();
-        }, true);
-        this.root.querySelector('.stp-bubble').addEventListener('pointerdown', (event) => {
-            if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
-            event.preventDefault();
-            event.stopPropagation();
-            this.openPhone();
+            requestStoryPhoneOpen('new_launcher_click', () => this.openPhone());
         }, true);
         this.bindDrag();
         this.bindEvents();
@@ -2571,70 +2625,50 @@ class PhoneUI {
 
     bindDrag() {
         const shell = this.root;
-        const handle = this.root.querySelector('.stp-phone-top');
         const bubble = this.root.querySelector('.stp-bubble');
-        const restore = safeStorageJson(`${STORAGE_PREFIX}:phone_position`, {});
-        if (typeof restore.left === 'number' && typeof restore.top === 'number') {
-            shell.style.left = `${restore.left}px`;
-            shell.style.top = `${restore.top}px`;
-            shell.style.right = 'auto';
-            shell.style.bottom = 'auto';
-        }
-        const bind = (dragHandle) => {
-            let startX = 0;
-            let startY = 0;
-            let startLeft = 0;
-            let startTop = 0;
-            let pointerId = null;
-            let moved = false;
-            dragHandle.style.touchAction = 'none';
-            dragHandle.addEventListener('pointerdown', (event) => {
-                if (event.target?.closest?.('button,input,textarea,label')) return;
-                pointerId = event.pointerId;
-                moved = false;
-                const rect = shell.getBoundingClientRect();
-                shell.style.left = `${rect.left}px`;
-                shell.style.top = `${rect.top}px`;
-                shell.style.right = 'auto';
-                shell.style.bottom = 'auto';
-                startX = event.clientX;
-                startY = event.clientY;
-                startLeft = rect.left;
-                startTop = rect.top;
-                dragHandle.setPointerCapture?.(pointerId);
-                event.preventDefault();
-                event.stopPropagation();
-            });
-            dragHandle.addEventListener('pointermove', (event) => {
-                if (pointerId !== event.pointerId) return;
-                const dx = event.clientX - startX;
-                const dy = event.clientY - startY;
-                if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
-                const width = shell.offsetWidth || 52;
-                const height = shell.offsetHeight || 52;
-                const left = Math.max(4, Math.min(window.innerWidth - width - 4, startLeft + dx));
-                const top = Math.max(48, Math.min(window.innerHeight - height - 4, startTop + dy));
-                shell.style.left = `${left}px`;
-                shell.style.top = `${top}px`;
-                event.preventDefault();
-                event.stopPropagation();
-            });
-            dragHandle.addEventListener('pointerup', (event) => {
-                if (pointerId !== event.pointerId) return;
-                dragHandle.releasePointerCapture?.(pointerId);
-                pointerId = null;
-                safeStorageSet(`${STORAGE_PREFIX}:phone_position`, JSON.stringify({
-                    left: parseInt(shell.style.left, 10) || 22,
-                    top: parseInt(shell.style.top, 10) || 86,
-                }));
-                if (dragHandle === bubble && moved) bubble.dataset.stpSuppressOpen = '1';
-                setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 0);
-                event.preventDefault();
-                event.stopPropagation();
-            });
+        let startX = 0;
+        let startY = 0;
+        let startLeft = 0;
+        let startTop = 0;
+        let pointerId = null;
+        let moved = false;
+        bubble.style.touchAction = 'none';
+        bubble.addEventListener('pointerdown', (event) => {
+            pointerId = event.pointerId;
+            moved = false;
+            const rect = shell.getBoundingClientRect();
+            applyLauncherPosition(shell, { left: rect.left, top: rect.top });
+            startX = event.clientX;
+            startY = event.clientY;
+            startLeft = parseInt(shell.style.left, 10) || rect.left;
+            startTop = parseInt(shell.style.top, 10) || rect.top;
+            bubble.setPointerCapture?.(pointerId);
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        bubble.addEventListener('pointermove', (event) => {
+            if (pointerId !== event.pointerId) return;
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+            if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+            if (!moved) return;
+            const position = clampLauncherPosition(startLeft + dx, startTop + dy, shell.offsetWidth || 48, shell.offsetHeight || 48);
+            applyLauncherPosition(shell, position);
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        const finishDrag = (event) => {
+            if (pointerId !== event.pointerId) return;
+            bubble.releasePointerCapture?.(pointerId);
+            pointerId = null;
+            rememberLauncherPosition(parseInt(shell.style.left, 10) || 22, parseInt(shell.style.top, 10) || 86);
+            if (moved) bubble.dataset.stpSuppressOpen = '1';
+            setTimeout(() => { delete bubble.dataset.stpSuppressOpen; }, 0);
+            event.preventDefault();
+            event.stopPropagation();
         };
-        bind(handle);
-        bind(bubble);
+        bubble.addEventListener('pointerup', finishDrag);
+        bubble.addEventListener('pointercancel', finishDrag);
         bubble.addEventListener('click', (event) => {
             if (bubble.dataset.stpSuppressOpen) {
                 event.preventDefault();
@@ -2666,6 +2700,11 @@ class PhoneUI {
         this.hasUserOpenedPhone = true;
         this.root.classList.remove('stp-is-minimized');
         this.root.classList.add('stp-is-open');
+        this.root.style.transform = 'translate(-50%, -50%)';
+        this.root.style.left = '50%';
+        this.root.style.top = '50%';
+        this.root.style.right = 'auto';
+        this.root.style.bottom = 'auto';
         modal?.classList.add('is-open');
         modal?.classList.remove('is-closed');
         modal?.setAttribute('aria-hidden', 'false');
@@ -2678,6 +2717,7 @@ class PhoneUI {
         this.isPhoneOpen = false;
         this.root.classList.add('stp-is-minimized');
         this.root.classList.remove('stp-is-open');
+        applyLauncherPosition(this.root);
         modal?.classList.add('is-closed');
         modal?.classList.remove('is-open');
         modal?.setAttribute('aria-hidden', 'true');
@@ -4471,6 +4511,21 @@ function bootSelfCheck() {
         modalMounted: Boolean(modal),
         activeView: appUi?.activeApp || null,
         duplicateNodesRemoved: storyPhoneRuntimeDebug.duplicateNodesRemoved + (launcherDebug.duplicateNodesRemoved || 0),
+        openSource: launcherDebug.openSource || null,
+        openAttemptCount: launcherDebug.openAttemptCount || 0,
+        lastOpenPath: launcherDebug.lastOpenPath || null,
+        calledLoadFullApp: Boolean(launcherDebug.calledLoadFullApp),
+        fullAppLoaded: Boolean(launcherDebug.fullAppLoaded),
+        newUiMounted: Boolean(launcherDebug.newUiMounted || appUi?.root),
+        calledNewOpenPhone: Boolean(launcherDebug.calledNewOpenPhone),
+        calledLegacyFallback: Boolean(launcherDebug.calledLegacyFallback),
+        legacyFallbackReason: launcherDebug.legacyFallbackReason || null,
+        legacyFallbackVisible: Boolean(launcherDebug.legacyFallbackVisible),
+        newLauncherVisible: Boolean(launcherDebug.newLauncherVisible),
+        duplicateNodes: Array.isArray(launcherDebug.duplicateNodes) ? launcherDebug.duplicateNodes : [],
+        lastPointerTarget: launcherDebug.lastPointerTarget || null,
+        lastPointerTargetId: launcherDebug.lastPointerTargetId || null,
+        lastPointerTargetClass: launcherDebug.lastPointerTargetClass || null,
         isMobileViewport: window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
         viewport,
         bootWarnings: storyPhoneRuntimeDebug.bootWarnings,
@@ -4485,6 +4540,7 @@ function forceResetStoryPhoneUiState() {
     document.getElementById('st-storyphone-modal')?.remove();
     document.getElementById('st-story-phone')?.remove();
     document.getElementById('st-story-phone-boot-error')?.remove();
+    clearLauncherPosition();
     globalThis.__STStoryPhoneApp = null;
     mountBootBubble();
     bootStoryPhone();
@@ -4578,6 +4634,7 @@ globalThis.STStoryPhoneDebug = {
     boot: bootStoryPhone,
     resetUi: forceResetStoryPhoneUiState,
     bootSelfCheck,
+    open: (source = 'debug_api') => requestStoryPhoneOpen(source, () => globalThis.__STStoryPhoneApp?.ui?.openPhone?.()),
     runtimeDebug: storyPhoneRuntimeDebug,
     state: () => globalThis.__STStoryPhoneApp?.state?.value || null,
 };

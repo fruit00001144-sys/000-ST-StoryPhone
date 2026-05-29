@@ -44,6 +44,18 @@
     z-index: 2147483646;
 }
 
+.stp-phone-shell.stp-is-minimized {
+    position: fixed;
+    width: 48px;
+    height: 48px;
+    pointer-events: none;
+    transform: none;
+}
+
+.stp-phone-shell.stp-is-open {
+    pointer-events: auto;
+}
+
 .stp-phone-shell:not(.stp-is-minimized) {
     position: fixed;
     left: 50%;
@@ -1011,6 +1023,7 @@
 
 .stp-phone-shell .stp-bubble {
     display: none;
+    pointer-events: none;
 }
 
 .stp-boot-bubble {
@@ -1999,6 +2012,17 @@
 #st-story-phone.stp-phone-shell {
     position: fixed !important;
     z-index: 2147483646 !important;
+}
+
+#st-story-phone.stp-phone-shell.stp-is-minimized {
+    width: 48px !important;
+    height: 48px !important;
+    pointer-events: none !important;
+    transform: none !important;
+}
+
+#st-story-phone.stp-phone-shell.stp-is-open {
+    pointer-events: auto !important;
 }
 
 #st-story-phone .st-storyphone-modal.is-closed {
