@@ -27,6 +27,10 @@ const storyPhoneRuntimeDebug = {
     modalMounted: false,
     duplicateNodesRemoved: 0,
     bootWarnings: [],
+    activeUiVersion: 'new',
+    activeRenderFunction: 'app.js:PhoneUI.render',
+    activeLauncherFunction: 'app.js:PhoneUI.mount',
+    lastUiBootError: null,
 };
 
 const STORYPHONE_OPEN_STATE_FIELDS = [
@@ -249,6 +253,20 @@ function stripStoryPhoneOpenStateForSave(value) {
     const persisted = cloneValue(value);
     removeStoryPhoneOpenStateFields(persisted);
     return persisted;
+}
+
+function markStoryPhoneNewUi(activeLauncherFunction = 'app.js:PhoneUI.mount') {
+    storyPhoneRuntimeDebug.activeUiVersion = 'new';
+    storyPhoneRuntimeDebug.activeRenderFunction = 'app.js:PhoneUI.render';
+    storyPhoneRuntimeDebug.activeLauncherFunction = activeLauncherFunction;
+    storyPhoneRuntimeDebug.lastUiBootError = null;
+    globalThis.STStoryPhoneLauncherDebug = {
+        ...(globalThis.STStoryPhoneLauncherDebug || {}),
+        activeUiVersion: 'new',
+        activeRenderFunction: 'app.js:PhoneUI.render',
+        activeLauncherFunction,
+        lastUiBootError: null,
+    };
 }
 
 function clampText(text, max = 1200) {
@@ -2514,6 +2532,7 @@ class PhoneUI {
     mount() {
         removeStoryPhoneDomDuplicates();
         document.getElementById('st-story-phone')?.remove();
+        markStoryPhoneNewUi('app.js:PhoneUI.mount');
         this.root = createElement('section', 'stp-phone-shell stp-is-minimized', '');
         this.root.id = 'st-story-phone';
         this.root.innerHTML = `
@@ -2641,6 +2660,7 @@ class PhoneUI {
 
     openPhone() {
         if (!this.root) return;
+        markStoryPhoneNewUi('app.js:PhoneUI.openPhone');
         const modal = this.root.querySelector('.st-storyphone-modal');
         this.isPhoneOpen = true;
         this.hasUserOpenedPhone = true;
@@ -4394,6 +4414,19 @@ class StoryPhoneApp {
 
 function bootSelfCheck() {
     const appUi = globalThis.__STStoryPhoneApp?.ui;
+    const launcherDebug = globalThis.STStoryPhoneLauncherDebug || {};
+    const storyPhoneStyleNodeCount = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).filter((node) => {
+        const marker = [
+            node.id || '',
+            node.getAttribute('data-storyphone') || '',
+            node.getAttribute('href') || '',
+        ].join(' ').toLowerCase();
+        return marker.includes('story') || marker.includes('stp') || marker.includes('style.css');
+    }).length;
+    if (storyPhoneStyleNodeCount > 1) {
+        const warning = `Multiple StoryPhone style nodes detected: ${storyPhoneStyleNodeCount}`;
+        if (!storyPhoneRuntimeDebug.bootWarnings.includes(warning)) storyPhoneRuntimeDebug.bootWarnings.push(warning);
+    }
     const modal = document.querySelector('#st-story-phone .st-storyphone-modal, #st-story-phone .stp-phone');
     const launcher = document.querySelector('#st-story-phone .stp-bubble, #st-story-phone-boot-bubble');
     const modalStyles = modal ? window.getComputedStyle(modal) : null;
@@ -4423,6 +4456,12 @@ function bootSelfCheck() {
         openStateCleared: storyPhoneRuntimeDebug.openStateCleared,
         storageReadable: storyPhoneRuntimeDebug.storageReadable,
         profileLoaded: storyPhoneRuntimeDebug.profileLoaded,
+        activeUiVersion: launcherDebug.activeUiVersion || storyPhoneRuntimeDebug.activeUiVersion || (appUi ? 'new' : 'boot_error'),
+        activeRenderFunction: launcherDebug.activeRenderFunction || storyPhoneRuntimeDebug.activeRenderFunction,
+        activeLauncherFunction: launcherDebug.activeLauncherFunction || storyPhoneRuntimeDebug.activeLauncherFunction,
+        legacyNodesRemoved: launcherDebug.legacyNodesRemoved || 0,
+        storyPhoneStyleNodeCount,
+        lastUiBootError: launcherDebug.lastUiBootError || storyPhoneRuntimeDebug.lastUiBootError,
         isPhoneOpenOnBoot: Boolean(appUi?.isPhoneOpen),
         modalVisibleOnBoot,
         modalDisplay: modal ? window.getComputedStyle(modal).display : null,
@@ -4431,7 +4470,7 @@ function bootSelfCheck() {
         rootMounted: Boolean(document.getElementById('st-story-phone')),
         modalMounted: Boolean(modal),
         activeView: appUi?.activeApp || null,
-        duplicateNodesRemoved: storyPhoneRuntimeDebug.duplicateNodesRemoved,
+        duplicateNodesRemoved: storyPhoneRuntimeDebug.duplicateNodesRemoved + (launcherDebug.duplicateNodesRemoved || 0),
         isMobileViewport: window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
         viewport,
         bootWarnings: storyPhoneRuntimeDebug.bootWarnings,
@@ -4502,6 +4541,8 @@ function bootStoryPhone() {
     } catch (error) {
         globalThis.__STStoryPhoneApp = null;
         storyPhoneRuntimeDebug.lastBootError = { message: error.message, stack: error.stack };
+        storyPhoneRuntimeDebug.activeUiVersion = 'boot_error';
+        storyPhoneRuntimeDebug.lastUiBootError = error.message;
         console.error('ST-StoryPhone boot failed', error);
         const bubble = document.getElementById('st-story-phone-boot-bubble');
         if (bubble) {

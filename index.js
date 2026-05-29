@@ -10,6 +10,36 @@
     var BRIDGE_SCRIPT = new URL('st-bridge.js', MODULE_BASE).href;
     var corePromise = null;
     var coreInstance = null;
+    var appLoadPromise = null;
+    var launcherDebug = {
+        activeUiVersion: 'loading_new',
+        activeRenderFunction: 'app.js:PhoneUI.render',
+        activeLauncherFunction: 'index.js:loadFullApp',
+        legacyNodesRemoved: 0,
+        duplicateNodesRemoved: 0,
+        storyPhoneStyleNodeCount: 0,
+        lastUiBootError: null,
+    };
+
+    function syncLauncherDebug() {
+        try {
+            launcherDebug.storyPhoneStyleNodeCount = Array.prototype.filter.call(
+                document.querySelectorAll('style, link[rel="stylesheet"]'),
+                function (node) {
+                    var marker = [
+                        node.id || '',
+                        node.getAttribute('data-storyphone') || '',
+                        node.getAttribute('href') || '',
+                    ].join(' ').toLowerCase();
+                    return marker.includes('story') || marker.includes('stp') || marker.includes('style.css');
+                }
+            ).length;
+        } catch (_) {
+            launcherDebug.storyPhoneStyleNodeCount = 0;
+        }
+        window.STStoryPhoneLauncherDebug = launcherDebug;
+        return launcherDebug;
+    }
 
     function safeStorageGet(key, fallback) {
         try {
@@ -31,6 +61,7 @@
     }
 
     function removeLegacyDom() {
+        var removed = 0;
         [
             '#st-story-phone-launcher',
             '#st-story-phone-fallback',
@@ -44,8 +75,13 @@
         ].forEach(function (selector) {
             document.querySelectorAll(selector).forEach(function (node) {
                 node.remove();
+                removed += 1;
             });
         });
+        launcherDebug.legacyNodesRemoved += removed;
+        launcherDebug.duplicateNodesRemoved += removed;
+        syncLauncherDebug();
+        return removed;
     }
 
     function getCore() {
@@ -71,7 +107,7 @@
         }
     }
 
-    function makeBubble() {
+    function legacyMakeBubble() {
         var old = document.getElementById('st-story-phone-launcher');
         if (old) {
             bindBubbleOpenEvents(old);
@@ -243,10 +279,15 @@
         });
     }
 
-    function makeFallbackPhone() {
+    function legacyMakeFallbackPhone(error) {
+        launcherDebug.activeUiVersion = 'legacy_fallback';
+        launcherDebug.activeRenderFunction = 'index.js:legacyMakeFallbackPhone';
+        launcherDebug.activeLauncherFunction = 'index.js:legacyMakeBubble';
+        launcherDebug.lastUiBootError = error ? String(error.message || error) : launcherDebug.lastUiBootError;
+        syncLauncherDebug();
         var old = document.getElementById('st-story-phone-fallback');
         if (old) {
-            old.style.display = old.style.display === 'none' ? 'block' : 'none';
+            old.style.display = 'block';
             return old;
         }
 
@@ -277,7 +318,8 @@
             '<div id="st-story-phone-fallback-home" style="height:100%;overflow:auto;padding:14px;box-sizing:border-box;">',
             '<div id="st-story-phone-home-card" style="border:2px solid rgba(36,49,79,.14);border-radius:24px;padding:18px;background:radial-gradient(circle at top right,rgba(113,207,255,.45),transparent 34%),linear-gradient(135deg,rgba(255,211,229,.78),rgba(216,255,229,.78));box-shadow:inset 0 0 0 2px rgba(255,255,255,.5);">',
             '<div style="font-family:Georgia,serif;font-size:34px;line-height:.92;font-weight:900;letter-spacing:-.06em;text-shadow:2px 2px 0 #fff;">Phoning<br>Phone</div>',
-            '<div style="margin-top:10px;font-size:12px;font-weight:900;">ST-StoryPhone fallback shell</div>',
+            '<div style="margin-top:10px;font-size:12px;font-weight:900;">ST-StoryPhone legacy fallback</div>',
+            '<div style="margin-top:8px;font-size:11px;font-weight:900;color:#8a2a2a;">New UI failed: ' + escapeHtml(launcherDebug.lastUiBootError || 'unknown error') + '</div>',
             '<div style="margin-top:8px;font-size:12px;">完整主体加载中；这里先作为可用手机桌面。</div>',
             '</div>',
             '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px;">',
@@ -302,15 +344,15 @@
         document.getElementById('st-story-phone-fallback-close').addEventListener('click', function () {
             panel.style.display = 'none';
         });
-        document.getElementById('st-story-phone-fallback-load').addEventListener('click', loadFullApp);
+        document.getElementById('st-story-phone-fallback-load').addEventListener('click', openPhone);
         document.getElementById('st-story-phone-fallback-bubble').addEventListener('click', function () {
-            makeBubble();
+            legacyMakeBubble();
             showToast('Phone 气泡已显示，可拖动');
         });
         Array.prototype.forEach.call(panel.querySelectorAll('[data-stp-app]'), function (button) {
             button.addEventListener('click', function () {
                 var label = button.getAttribute('data-stp-app');
-                renderFallbackApp(label);
+                legacyRenderFallbackApp(label);
             });
         });
         return panel;
@@ -320,10 +362,10 @@
         return '<button type="button" data-stp-app="' + label + '" style="min-height:82px;border:2px solid rgba(36,49,79,.16);border-radius:22px;background:rgba(255,255,255,.72);color:#24314f;font-weight:900;box-shadow:0 6px 0 rgba(36,49,79,.08);"><span style="display:block;width:42px;margin:0 auto 7px;padding:7px 0;border-radius:15px;background:#bfefff;font-size:22px;">' + icon + '</span>' + label + '</button>';
     }
 
-    function renderFallbackApp(label) {
+    function legacyRenderFallbackApp(label) {
         openFallbackAppShell(label);
-        if (label === '微信' || label === '朋友圈') return renderFallbackWechat(label === '朋友圈' ? 'moments' : 'list');
-        if (label === '论坛') return renderFallbackForum();
+        if (label === '微信' || label === '朋友圈') return legacyRenderFallbackWechat(label === '朋友圈' ? 'moments' : 'list');
+        if (label === '论坛') return legacyRenderFallbackForum();
         if (label === '日历') return renderSimpleApp('📅 日历', '今天：剧情时间同步主线。<br>未来暗线：等待主剧情推进，不提前泄露。');
         if (label === '备忘录') return renderMemoApp();
         if (label === '目标手机') return renderSimpleApp('📱 目标手机', '只读模式。这里将展示目标角色可见范围内的消息、备忘录和日历。');
@@ -354,7 +396,7 @@
         return document.getElementById('stp-app-content') || document.getElementById('st-story-phone-fallback-view');
     }
 
-    function renderFallbackWechat(tab) {
+    function legacyRenderFallbackWechat(tab) {
         var view = fallbackContent();
         var fallbackState = getPhoneState();
         var chat = normalizeChatHistory(fallbackState.chats.char || []);
@@ -396,7 +438,7 @@
                     moments[Number(button.dataset.like)].liked = !moments[Number(button.dataset.like)].liked;
                     savePhoneStatePatch({ moments: moments });
                     addCorePhoneEvent('phone_moments', 'moment_like', 'user', moments[Number(button.dataset.like)].author, '点赞朋友圈：' + moments[Number(button.dataset.like)].text, { public: true, char: false });
-                    renderFallbackWechat('moments');
+                    legacyRenderFallbackWechat('moments');
                 });
             });
             Array.prototype.forEach.call(view.querySelectorAll('[data-comment]'), function (button) {
@@ -406,7 +448,7 @@
                     moments[Number(button.dataset.comment)].comments.push(text);
                     savePhoneStatePatch({ moments: moments });
                     addCorePhoneEvent('phone_moments', 'moment_comment', 'user', moments[Number(button.dataset.comment)].author, '评论朋友圈：' + text, { public: true, char: false });
-                    renderFallbackWechat('moments');
+                    legacyRenderFallbackWechat('moments');
                 });
             });
             return;
@@ -424,17 +466,17 @@
             fallbackState.chats.char = chat;
             savePhoneStatePatch({ chats: fallbackState.chats });
             addCorePhoneEvent('phone_wechat', 'wechat_message', 'user', 'char', text, { char: true, npcs: [] });
-            renderFallbackWechat('chat');
+            legacyRenderFallbackWechat('chat');
         });
     }
 
     function bindWechatTabs() {
         Array.prototype.forEach.call(document.querySelectorAll('[data-stp-wx-tab]'), function (button) {
-            button.addEventListener('click', function () { renderFallbackWechat(button.dataset.stpWxTab); });
+            button.addEventListener('click', function () { legacyRenderFallbackWechat(button.dataset.stpWxTab); });
         });
     }
 
-    function renderFallbackForum() {
+    function legacyRenderFallbackForum() {
         var view = fallbackContent();
         var fallbackState = getPhoneState();
         var posts = fallbackState.forumPosts || [];
@@ -445,7 +487,7 @@
             posts.unshift({ title: '新的讨论串正在生成…', body: getApiConfigured() ? '已请求扩展 API。' : '后台生成接口未接入，显示本地占位。', floors: ['1L：先观察，不要默认全员知道。'] });
             savePhoneStatePatch({ forumPosts: posts });
             addCorePhoneEvent('phone_forum', 'forum_refresh', 'system', null, posts[0].title, { public: true });
-            renderFallbackForum();
+            legacyRenderFallbackForum();
         });
         Array.prototype.forEach.call(view.querySelectorAll('[data-floor]'), function (button) {
             button.addEventListener('click', function () {
@@ -455,7 +497,7 @@
                 post.floors.push((post.floors.length + 1) + 'L：' + text);
                 savePhoneStatePatch({ forumPosts: posts });
                 addCorePhoneEvent('phone_forum', 'forum_reply', 'user', post.title, text, { public: true });
-                renderFallbackForum();
+                legacyRenderFallbackForum();
             });
         });
     }
@@ -531,9 +573,50 @@
         });
     }
 
+    function getMountedNewUi() {
+        return window.__STStoryPhoneApp?.ui || null;
+    }
+
+    function waitForNewUi(timeoutMs) {
+        var started = Date.now();
+        return new Promise(function (resolve, reject) {
+            function check() {
+                var ui = getMountedNewUi();
+                if (ui?.root && document.getElementById('st-story-phone')) return resolve(ui);
+                if (Date.now() - started >= timeoutMs) return reject(new Error('New StoryPhone app did not mount'));
+                setTimeout(check, 60);
+            }
+            check();
+        });
+    }
+
     function openPhone() {
-        makeFallbackPhone();
-        loadFullApp();
+        launcherDebug.activeUiVersion = 'loading_new';
+        launcherDebug.activeRenderFunction = 'app.js:PhoneUI.render';
+        launcherDebug.activeLauncherFunction = 'index.js:openPhone';
+        launcherDebug.lastUiBootError = null;
+        syncLauncherDebug();
+        return loadFullApp()
+            .then(function (ui) {
+                if (!ui?.openPhone) throw new Error('New StoryPhone UI openPhone is unavailable');
+                removeLegacyDom();
+                ui.openPhone();
+                launcherDebug.activeUiVersion = 'new';
+                launcherDebug.activeRenderFunction = 'app.js:PhoneUI.render';
+                launcherDebug.activeLauncherFunction = 'app.js:PhoneUI.openPhone';
+                syncLauncherDebug();
+                return ui;
+            })
+            .catch(function (error) {
+                launcherDebug.activeUiVersion = 'legacy_fallback';
+                launcherDebug.activeRenderFunction = 'index.js:legacyMakeFallbackPhone';
+                launcherDebug.activeLauncherFunction = 'index.js:legacyMakeBubble';
+                launcherDebug.lastUiBootError = String(error?.message || error);
+                syncLauncherDebug();
+                console.warn('StoryPhone new UI failed, using legacy fallback', error);
+                legacyMakeFallbackPhone(error);
+                return null;
+            });
     }
 
     function mountDiagnosticsPanel() {
@@ -571,9 +654,8 @@
         var force = document.getElementById('st-story-phone-force-bubble');
         if (force) {
             force.addEventListener('click', function () {
-                makeBubble();
-                makeFallbackPhone();
-                showToast('Phone 已放到左上角');
+                openPhone();
+                showToast('StoryPhone 正在打开新版 UI');
             });
         }
         var endpointInput = document.getElementById('st-story-phone-api-endpoint');
@@ -648,44 +730,56 @@
 
     function loadFullApp() {
         removeLegacyDom();
-        if (window.__STStoryPhoneAppLoaded) {
-            if (window.STStoryPhoneDebug && window.STStoryPhoneDebug.resetUi) {
-                window.STStoryPhoneDebug.resetUi();
-            } else {
-                makeFallbackPhone();
-            }
-            return;
+        launcherDebug.activeUiVersion = 'loading_new';
+        launcherDebug.activeRenderFunction = 'app.js:PhoneUI.render';
+        launcherDebug.activeLauncherFunction = 'index.js:loadFullApp';
+        syncLauncherDebug();
+
+        if (getMountedNewUi()) {
+            launcherDebug.activeUiVersion = 'new';
+            syncLauncherDebug();
+            return Promise.resolve(getMountedNewUi());
         }
 
-        window.__STStoryPhoneAppLoaded = true;
-        import(APP_SCRIPT + '?v=' + EXTENSION_VERSION).then(function () {
+        if (!appLoadPromise) {
+            window.__STStoryPhoneAppLoaded = true;
+            appLoadPromise = import(APP_SCRIPT + '?v=' + EXTENSION_VERSION).then(function () {
             if (window.STStoryPhoneDebug?.boot) {
                 window.STStoryPhoneDebug.boot();
             }
-            showToast('ST-StoryPhone 已打开');
+            return waitForNewUi(1600);
+        }).then(function (ui) {
+            launcherDebug.activeUiVersion = 'new';
+            launcherDebug.activeRenderFunction = 'app.js:PhoneUI.render';
+            launcherDebug.activeLauncherFunction = 'app.js:PhoneUI.mount';
+            launcherDebug.lastUiBootError = null;
+            syncLauncherDebug();
             var fallback = document.getElementById('st-story-phone-fallback');
             if (document.getElementById('st-story-phone') && fallback) fallback.remove();
             var launcher = document.getElementById('st-story-phone-launcher');
             if (launcher) launcher.remove();
-            setTimeout(function () {
-                if (!document.getElementById('st-story-phone')) {
-                    makeFallbackPhone();
-                    showToast('完整手机未挂载，已打开最小手机面板；请查看控制台错误');
-                }
-            }, 1200);
+            return ui;
         }).catch(function (error) {
             window.__STStoryPhoneAppLoaded = false;
+            appLoadPromise = null;
+            launcherDebug.activeUiVersion = 'boot_error';
+            launcherDebug.lastUiBootError = String(error?.message || error);
+            syncLauncherDebug();
             console.error('ST-StoryPhone full app failed to load:', error);
-            showToast('手机主体加载失败，但气泡已工作。请看控制台错误。');
+            throw error;
         });
+        }
+
+        return appLoadPromise;
     }
 
     ready(function () {
         window.STStoryPhoneLauncher = {
             load: loadFullApp,
-            bubble: makeBubble,
-            fallback: makeFallbackPhone,
+            bubble: legacyMakeBubble,
+            fallback: legacyMakeFallbackPhone,
             diagnostics: mountDiagnosticsPanel,
+            debug: syncLauncherDebug,
             core: function () { return coreInstance; },
             version: EXTENSION_VERSION,
         };
@@ -697,9 +791,12 @@
             }
         }, true);
         removeLegacyDom();
-        loadFullApp();
+        loadFullApp().catch(function (error) {
+            console.warn('StoryPhone new UI failed on startup, using legacy fallback', error);
+            legacyMakeFallbackPhone(error);
+        });
         setTimeout(function () {
-            if (!document.getElementById('st-story-phone') && !window.__STStoryPhoneAppLoaded) makeBubble();
+            if (!document.getElementById('st-story-phone') && !window.__STStoryPhoneAppLoaded) legacyMakeBubble();
         }, 1500);
         try {
             mountDiagnosticsPanel();
