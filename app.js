@@ -456,6 +456,14 @@ function createElement(tag, className, text) {
     return element;
 }
 
+function describeDomNode(node) {
+    if (!node || !node.tagName) return null;
+    const className = typeof node.className === 'string' ? node.className.trim().replace(/\s+/g, '.') : '';
+    return node.tagName.toLowerCase()
+        + (node.id ? `#${node.id}` : '')
+        + (className ? `.${className}` : '');
+}
+
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
         '&': '&amp;',
@@ -2625,6 +2633,7 @@ class PhoneUI {
         this.root.innerHTML = `
             <div class="stp-phone st-storyphone-modal is-closed" id="st-storyphone-modal" aria-hidden="true">
                 <div class="stp-phone-top">
+                    <div class="stp-drag-handle" aria-hidden="true"></div>
                     <span class="stp-signal">STORY 5G</span>
                     <span class="stp-camera"></span>
                     <button class="stp-mini" type="button" title="最小化">_</button>
@@ -2640,7 +2649,7 @@ class PhoneUI {
         this.screen = this.root.querySelector('.stp-screen');
         this.modal = this.root.querySelector('.st-storyphone-modal');
         this.dragHandle = this.root.querySelector('.stp-phone-top');
-        shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.closePhone());
+        this.bindCloseButton(this.root.querySelector('.stp-mini'));
         this.root.querySelector('.stp-bubble').addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -2740,9 +2749,44 @@ class PhoneUI {
         return window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
     }
 
+    bindCloseButton(button) {
+        if (!button || button.__stpCloseBound) return;
+        button.__stpCloseBound = true;
+        const logCloseState = (patch) => mergeStoryPhoneLauncherDebug({
+            ...patch,
+            closeButtonTopElementFromPoint: patch.closeButtonTopElementFromPoint || getStoryPhoneLauncherDebug().closeButtonTopElementFromPoint || null,
+        });
+        const activateClose = (event, source) => {
+            const rect = button.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const top = document.elementFromPoint(x, y);
+            logCloseState({
+                closeButtonClicked: source,
+                closeButtonTopElementFromPoint: describeDomNode(top),
+                closeBlockedReason: null,
+            });
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation?.();
+            this.closePhone();
+        };
+        button.addEventListener('pointerdown', (event) => {
+            logCloseState({
+                closeButtonPointerDown: Date.now(),
+                closeButtonTopElementFromPoint: describeDomNode(event.target),
+                closeBlockedReason: null,
+            });
+            event.stopPropagation();
+        }, true);
+        button.addEventListener('pointerup', (event) => activateClose(event, 'pointerup'), true);
+        button.addEventListener('touchend', (event) => activateClose(event, 'touchend'), { capture: true, passive: false });
+        button.addEventListener('click', (event) => activateClose(event, 'click'), true);
+    }
+
     bindPhoneWindowDrag() {
         const shell = this.root;
-        const handle = this.root.querySelector('.stp-phone-top');
+        const handle = this.root.querySelector('.stp-drag-handle') || this.root.querySelector('.stp-phone-top');
         if (!shell || !handle) return;
         if (handle.__stpPhoneDragBound) return;
         handle.__stpPhoneDragBound = true;
@@ -2753,8 +2797,18 @@ class PhoneUI {
         let startTop = 0;
         const dragThreshold = 6;
         handle.addEventListener('pointerdown', (event) => {
-            if (this.isMobileViewport()) return;
-            if (event.target?.closest?.('.stp-mini,button,input,textarea,select,label,a')) return;
+            mergeStoryPhoneLauncherDebug({
+                phoneDragPointerDown: Date.now(),
+                phoneDragHandleTarget: describeDomNode(event.target),
+            });
+            if (this.isMobileViewport()) {
+                mergeStoryPhoneLauncherDebug({ phoneDragBlockedReason: 'mobile_disabled' });
+                return;
+            }
+            if (event.target?.closest?.('.stp-mini,button,input,textarea,select,label,a')) {
+                mergeStoryPhoneLauncherDebug({ phoneDragBlockedReason: 'interactive_child' });
+                return;
+            }
             this.phoneDragPointerId = event.pointerId;
             this.phoneDragMoved = false;
             const rect = shell.getBoundingClientRect();
@@ -2763,6 +2817,7 @@ class PhoneUI {
             startLeft = rect.left;
             startTop = rect.top;
             handle.setPointerCapture?.(event.pointerId);
+            shell.classList.add('stp-is-dragging');
         });
         handle.addEventListener('pointermove', (event) => {
             if (this.phoneDragPointerId !== event.pointerId) return;
@@ -2771,6 +2826,10 @@ class PhoneUI {
             const dy = event.clientY - startY;
             if (Math.abs(dx) + Math.abs(dy) > dragThreshold) this.phoneDragMoved = true;
             if (!this.phoneDragMoved) return;
+            mergeStoryPhoneLauncherDebug({
+                phoneDragStarted: true,
+                phoneDragMoved: { dx, dy },
+            });
             const width = shell.offsetWidth || 420;
             const height = shell.offsetHeight || 760;
             const position = clampPhoneWindowPosition(startLeft + dx, startTop + dy, width, height, 40);
@@ -2787,7 +2846,11 @@ class PhoneUI {
             if (this.phoneDragPointerId !== event.pointerId) return;
             handle.releasePointerCapture?.(event.pointerId);
             this.phoneDragPointerId = null;
-            if (!this.phoneDragMoved) return;
+            shell.classList.remove('stp-is-dragging');
+            if (!this.phoneDragMoved) {
+                mergeStoryPhoneLauncherDebug({ phoneDragEnded: 'no_move' });
+                return;
+            }
             const width = shell.offsetWidth || 420;
             const height = shell.offsetHeight || 760;
             const currentLeft = parseInt(shell.style.left, 10) || shell.getBoundingClientRect().left;
@@ -2799,6 +2862,8 @@ class PhoneUI {
             mergeStoryPhoneLauncherDebug({
                 phoneDragEnabled: true,
                 phoneDragPosition: position,
+                phoneDragEnded: Date.now(),
+                phoneDragBlockedReason: null,
             });
             event.preventDefault();
             event.stopPropagation();
@@ -2874,6 +2939,7 @@ class PhoneUI {
             modal.setAttribute('aria-hidden', 'true');
             modal.innerHTML = `
                 <div class="stp-phone-top">
+                    <div class="stp-drag-handle" aria-hidden="true"></div>
                     <span class="stp-signal">STORY 5G</span>
                     <span class="stp-camera"></span>
                     <button class="stp-mini" type="button" title="最小化">_</button>
@@ -2886,7 +2952,7 @@ class PhoneUI {
         this.modal = modal || this.modal;
         this.screen = screen || this.screen;
         if (this.modal?.querySelector('.stp-mini')) {
-            shieldStoryPhonePointer(this.modal.querySelector('.stp-mini'), () => this.closePhone());
+            this.bindCloseButton(this.modal.querySelector('.stp-mini'));
         }
         this.bindPhoneWindowDrag();
         return Boolean(this.modal && this.modal.isConnected && this.screen && this.screen.isConnected);
@@ -4061,6 +4127,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('Phone Entries'));
+        const content = createElement('div', 'stp-app-content');
         const form = createElement('form', 'stp-editor');
         form.innerHTML = `
             <input name="title" placeholder="条目标题" />
@@ -4133,7 +4200,8 @@ class PhoneUI {
             list.append(card);
         });
         if (!list.children.length) list.append(createElement('p', 'stp-empty', '暂无 Phone Entry。'));
-        wrap.append(form, tools, list);
+        content.append(form, tools, list);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4141,6 +4209,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('调试面板'));
+        const content = createElement('div', 'stp-app-content');
         const auditor = new KnowledgeTimelineAuditor(this.state.value);
         const hostCharId = this.state.getHostCharId();
         const lastEvent = this.state.value.eventLog.at(-1) || null;
@@ -4227,7 +4296,8 @@ class PhoneUI {
             });
             tests.append(button);
         });
-        wrap.append(summary, tests);
+        content.append(summary, tests);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4504,6 +4574,7 @@ class PhoneUI {
         this.screen.innerHTML = '';
         const wrap = createElement('div', 'stp-app');
         wrap.append(this.nav('设置'));
+        const content = createElement('div', 'stp-app-content stp-settings-page');
         const settings = this.state.value.settings;
         const currentProfile = this.profileManager.getCurrentProfile?.() || null;
         const panel = createElement('div', 'stp-settings');
@@ -4590,7 +4661,8 @@ class PhoneUI {
             console.info(`${EXTENSION_ID} state`, cloneValue(this.state.value));
             this.showNotice('当前状态已输出到浏览器控制台');
         });
-        wrap.append(panel);
+        content.append(panel);
+        wrap.append(content);
         this.screen.append(wrap);
     }
 
@@ -4843,6 +4915,16 @@ function bootSelfCheck() {
         phoneDragEnabled: Boolean(appUi?.isPhoneOpen) && !isMobileViewport,
         phoneDragPosition,
         launcherDragPosition,
+        phoneDragPointerDown: launcherDebug.phoneDragPointerDown || null,
+        phoneDragStarted: launcherDebug.phoneDragStarted || null,
+        phoneDragMoved: launcherDebug.phoneDragMoved || null,
+        phoneDragEnded: launcherDebug.phoneDragEnded || null,
+        phoneDragHandleTarget: launcherDebug.phoneDragHandleTarget || null,
+        phoneDragBlockedReason: launcherDebug.phoneDragBlockedReason || null,
+        closeButtonPointerDown: launcherDebug.closeButtonPointerDown || null,
+        closeButtonClicked: launcherDebug.closeButtonClicked || null,
+        closeButtonTopElementFromPoint: launcherDebug.closeButtonTopElementFromPoint || null,
+        closeBlockedReason: launcherDebug.closeBlockedReason || null,
         modalFitsViewport,
         rootPointerEvents: rootStyles?.pointerEvents || null,
         viewport,
@@ -4954,6 +5036,30 @@ globalThis.STStoryPhoneDebug = {
     resetUi: forceResetStoryPhoneUiState,
     bootSelfCheck,
     open: (source = 'debug_api') => requestStoryPhoneOpen(source, () => globalThis.__STStoryPhoneApp?.ui?.openPhone?.()),
+    inspectPoint: (x, y) => {
+        const pointX = Number(x);
+        const pointY = Number(y);
+        const element = Number.isFinite(pointX) && Number.isFinite(pointY)
+            ? document.elementFromPoint(pointX, pointY)
+            : null;
+        const style = element ? window.getComputedStyle(element) : null;
+        const rect = element?.getBoundingClientRect?.();
+        return {
+            x: pointX,
+            y: pointY,
+            topElementTag: element?.tagName?.toLowerCase() || null,
+            topElementId: element?.id || null,
+            topElementClass: typeof element?.className === 'string' ? element.className : null,
+            pointerEvents: style?.pointerEvents || null,
+            zIndex: style?.zIndex || null,
+            rect: rect ? {
+                left: rect.left,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+            } : null,
+        };
+    },
     runtimeDebug: storyPhoneRuntimeDebug,
     state: () => globalThis.__STStoryPhoneApp?.state?.value || null,
 };

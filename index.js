@@ -83,6 +83,16 @@
         if ('openPhoneAfter' in sharedDebug) launcherDebug.openPhoneAfter = sharedDebug.openPhoneAfter;
         if ('openValidationPassed' in sharedDebug) launcherDebug.openValidationPassed = Boolean(sharedDebug.openValidationPassed);
         if ('openValidationError' in sharedDebug) launcherDebug.openValidationError = sharedDebug.openValidationError || null;
+        if ('phoneDragPointerDown' in sharedDebug) launcherDebug.phoneDragPointerDown = sharedDebug.phoneDragPointerDown;
+        if ('phoneDragStarted' in sharedDebug) launcherDebug.phoneDragStarted = sharedDebug.phoneDragStarted;
+        if ('phoneDragMoved' in sharedDebug) launcherDebug.phoneDragMoved = sharedDebug.phoneDragMoved;
+        if ('phoneDragEnded' in sharedDebug) launcherDebug.phoneDragEnded = sharedDebug.phoneDragEnded;
+        if ('phoneDragHandleTarget' in sharedDebug) launcherDebug.phoneDragHandleTarget = sharedDebug.phoneDragHandleTarget;
+        if ('phoneDragBlockedReason' in sharedDebug) launcherDebug.phoneDragBlockedReason = sharedDebug.phoneDragBlockedReason;
+        if ('closeButtonPointerDown' in sharedDebug) launcherDebug.closeButtonPointerDown = sharedDebug.closeButtonPointerDown;
+        if ('closeButtonClicked' in sharedDebug) launcherDebug.closeButtonClicked = sharedDebug.closeButtonClicked;
+        if ('closeButtonTopElementFromPoint' in sharedDebug) launcherDebug.closeButtonTopElementFromPoint = sharedDebug.closeButtonTopElementFromPoint;
+        if ('closeBlockedReason' in sharedDebug) launcherDebug.closeBlockedReason = sharedDebug.closeBlockedReason;
         try {
             launcherDebug.storyPhoneStyleNodeCount = Array.prototype.filter.call(
                 document.querySelectorAll('style, link[rel="stylesheet"]'),
@@ -139,6 +149,16 @@
                 openPhoneAfter: launcherDebug.openPhoneAfter,
                 openValidationPassed: launcherDebug.openValidationPassed,
                 openValidationError: launcherDebug.openValidationError,
+                phoneDragPointerDown: launcherDebug.phoneDragPointerDown || null,
+                phoneDragStarted: launcherDebug.phoneDragStarted || null,
+                phoneDragMoved: launcherDebug.phoneDragMoved || null,
+                phoneDragEnded: launcherDebug.phoneDragEnded || null,
+                phoneDragHandleTarget: launcherDebug.phoneDragHandleTarget || null,
+                phoneDragBlockedReason: launcherDebug.phoneDragBlockedReason || null,
+                closeButtonPointerDown: launcherDebug.closeButtonPointerDown || null,
+                closeButtonClicked: launcherDebug.closeButtonClicked || null,
+                closeButtonTopElementFromPoint: launcherDebug.closeButtonTopElementFromPoint || null,
+                closeBlockedReason: launcherDebug.closeBlockedReason || null,
             };
         };
         window.STStoryPhoneLauncherDebug = {

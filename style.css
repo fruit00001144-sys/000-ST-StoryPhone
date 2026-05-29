@@ -955,7 +955,8 @@
 }
 
 .stp-phone-top {
-    height: 42px;
+    height: 52px;
+    position: relative;
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
@@ -965,6 +966,17 @@
     letter-spacing: 0.08em;
     cursor: move;
     touch-action: none;
+}
+
+.stp-drag-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 56px;
+    bottom: 0;
+    z-index: 1;
+    cursor: grab;
+    pointer-events: auto;
 }
 
 .stp-camera {
@@ -977,18 +989,23 @@
 
 .stp-mini {
     justify-self: end;
-    width: 30px;
-    height: 24px;
+    position: relative;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     border: 2px solid var(--stp-ink);
     border-radius: 8px;
     background: var(--stp-cream);
     color: var(--stp-ink);
     font-weight: 900;
     cursor: pointer;
+    pointer-events: auto;
+    z-index: 3;
 }
 
 .stp-screen {
-    height: calc(100% - 42px);
+    height: calc(100% - 52px);
     margin: 0 12px 12px;
     border: 3px solid rgba(36, 49, 79, 0.28);
     border-radius: 28px;
@@ -1111,6 +1128,22 @@
     flex-direction: column;
     overflow: hidden;
     background: #f5f5f5;
+}
+
+.stp-app-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 10px 10px 18px;
+    box-sizing: border-box;
+}
+
+.stp-settings-page .stp-settings {
+    min-height: 0;
+    overflow: visible;
 }
 
 .stp-nav {
@@ -2086,6 +2119,10 @@
     transform: none !important;
 }
 
+#st-story-phone.stp-phone-shell.stp-is-dragging .stp-drag-handle {
+    cursor: grabbing !important;
+}
+
 #st-story-phone .stp-app-grid {
     grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)) !important;
     gap: 12px !important;
@@ -2136,6 +2173,11 @@
     #st-story-phone .stp-phone-top {
         cursor: default;
         touch-action: pan-y;
+    }
+
+    #st-story-phone .stp-drag-handle {
+        pointer-events: none;
+        cursor: default;
     }
 
     #st-story-phone .stp-app-grid {
