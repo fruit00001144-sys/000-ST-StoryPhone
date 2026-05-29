@@ -16,6 +16,8 @@ const storyPhoneRuntimeDebug = {
     storedVersion: null,
     migrationRan: false,
     cleanedKeys: [],
+    cleanedOpenStateKeys: [],
+    openStateCleared: false,
     lastBootError: null,
     lastBootStep: 'init',
     storageReadable: false,
@@ -24,7 +26,69 @@ const storyPhoneRuntimeDebug = {
     rootMounted: false,
     modalMounted: false,
     duplicateNodesRemoved: 0,
+    bootWarnings: [],
 };
+
+const STORYPHONE_OPEN_STATE_FIELDS = [
+    'storyPhoneOpen',
+    'phoneOpen',
+    'modalOpen',
+    'isOpen',
+    'launcherOpen',
+    'activeModal',
+    'activeViewOpen',
+    'storyPhoneLastOpen',
+    'open',
+    'opened',
+    'isPhoneOpen',
+    'activeModalOpen',
+    'layoutOpen',
+    'layoutState',
+    'launcherState',
+    'modalState',
+    'minimized',
+];
+
+const STORYPHONE_OPEN_STATE_STORAGE_KEYS = [
+    'storyPhoneOpen',
+    'phoneOpen',
+    'modalOpen',
+    'isOpen',
+    'launcherOpen',
+    'activeModal',
+    'activeViewOpen',
+    'storyPhoneLastOpen',
+    'activeModalOpen',
+    'storyphoneOpen',
+    'StoryPhoneOpen',
+    'st_story_phone_open',
+    'st_story_phone_modal_open',
+    'st_story_phone_launcher_open',
+    'st_story_phone_last_open',
+    'st_story_phone:open',
+    'st_story_phone:modalOpen',
+    'st_story_phone:phoneOpen',
+    'st_story_phone:isOpen',
+    'st_story_phone:launcherOpen',
+    'st_story_phone:activeModal',
+    'st_story_phone:activeViewOpen',
+    'st_story_phone:storyPhoneLastOpen',
+    'st_story_phone:layoutOpen',
+];
+
+const STORYPHONE_OPEN_STATE_KEY_PATTERNS = [
+    /(^|[:_-])(story[-_]?phone[-_]?)?open$/i,
+    /(^|[:_-])phone[-_]?open$/i,
+    /(^|[:_-])modal[-_]?open$/i,
+    /(^|[:_-])is[-_]?open$/i,
+    /(^|[:_-])launcher[-_]?open$/i,
+    /(^|[:_-])active[-_]?modal$/i,
+    /(^|[:_-])active[-_]?view[-_]?open$/i,
+    /(^|[:_-])story[-_]?phone[-_]?last[-_]?open$/i,
+    /(^|[:_-])active[-_]?modal[-_]?open$/i,
+    /(^|[:_-])layout[-_]?open$/i,
+    /(^|[:_-])old[-_]?layout[-_]?open[-_]?state$/i,
+];
 
 const DEFAULT_PROFILE = {
     id: 'default',
@@ -162,6 +226,29 @@ function safeStorageRemove(key) {
 
 function safeStorageJson(key, fallback) {
     return safeJsonParse(safeStorageGet(key, ''), fallback);
+}
+
+function removeStoryPhoneOpenStateFields(target, prefix = '') {
+    if (!target || typeof target !== 'object') return [];
+    const cleaned = [];
+    STORYPHONE_OPEN_STATE_FIELDS.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(target, field)) {
+            delete target[field];
+            cleaned.push(prefix ? `${prefix}.${field}` : field);
+        }
+    });
+    ['settings', 'ui', 'modal', 'launcher', 'layout', 'phoneState'].forEach((field) => {
+        if (target[field] && typeof target[field] === 'object') {
+            cleaned.push(...removeStoryPhoneOpenStateFields(target[field], prefix ? `${prefix}.${field}` : field));
+        }
+    });
+    return cleaned;
+}
+
+function stripStoryPhoneOpenStateForSave(value) {
+    const persisted = cloneValue(value);
+    removeStoryPhoneOpenStateFields(persisted);
+    return persisted;
 }
 
 function clampText(text, max = 1200) {
@@ -488,6 +575,7 @@ function removeStoryPhoneDomDuplicates() {
 
 function cleanStoryPhoneUiState(reason = 'manual') {
     const cleaned = [];
+    const cleanedOpenState = [];
     const keys = [];
     try {
         for (let i = 0; i < localStorage.length; i += 1) {
@@ -500,35 +588,87 @@ function cleanStoryPhoneUiState(reason = 'manual') {
     }
     const uiPatterns = [
         /^st_story_phone_launcher_pos$/,
-        /^st_story_phone:(phone_position|launcher|layout|active|view|modal|icon|render|debug|ui)/,
+        /^st_story_phone:(phone_position|launcher|layout|modal|icon|render|debug|ui)/,
         /^st-story-phone/i,
-        /^storyphone/i,
+        /^storyphone[-_:]?(launcher|layout|modal|ui|open|lastopen|active)/i,
     ];
+    const isOpenStateStorageKey = (key) => (
+        STORYPHONE_OPEN_STATE_STORAGE_KEYS.includes(key)
+        || STORYPHONE_OPEN_STATE_KEY_PATTERNS.some((pattern) => pattern.test(key))
+        || /^st_story_phone:(old[-_]?layout|layout|modal|launcher).*open/i.test(key)
+    );
     keys.forEach((key) => {
         if (key === STORYPHONE_VERSION_KEY) return;
+        if (isOpenStateStorageKey(key)) {
+            if (safeStorageRemove(key)) {
+                cleaned.push(key);
+                cleanedOpenState.push(key);
+            }
+        }
+    });
+    keys.forEach((key) => {
+        if (key === STORYPHONE_VERSION_KEY || cleaned.includes(key)) return;
         if (uiPatterns.some((pattern) => pattern.test(key))) {
             if (safeStorageRemove(key)) cleaned.push(key);
         }
     });
-    keys.filter((key) => key.startsWith(`${STORAGE_PREFIX}:`)).forEach((key) => {
+    keys.filter((key) => key.startsWith(`${STORAGE_PREFIX}:`) && !cleaned.includes(key)).forEach((key) => {
         const state = safeStorageJson(key, null);
         if (!state || typeof state !== 'object') return;
-        let changed = false;
-        if (state.settings && state.settings.minimized) {
-            state.settings.minimized = false;
-            changed = true;
-        }
-        ['activeView', 'activeApp', 'selectedTab', 'modalOpen', 'layoutState', 'launcherState', 'renderCache', 'iconState'].forEach((field) => {
+        const removedFields = removeStoryPhoneOpenStateFields(state);
+        ['selectedTab', 'renderCache', 'iconState'].forEach((field) => {
             if (field in state) {
                 delete state[field];
-                changed = true;
+                removedFields.push(field);
             }
         });
-        if (changed && safeStorageSet(key, JSON.stringify(state))) cleaned.push(`${key}:ui-fields`);
+        if (removedFields.length && safeStorageSet(key, JSON.stringify(state))) {
+            cleaned.push(`${key}:ui-fields`);
+            cleanedOpenState.push(...removedFields.map((field) => `${key}.${field}`));
+        }
     });
     storyPhoneRuntimeDebug.cleanedKeys = uniqueArray([...storyPhoneRuntimeDebug.cleanedKeys, ...cleaned]);
-    console.info(`${EXTENSION_ID}: UI state cleaned`, { reason, cleaned });
+    storyPhoneRuntimeDebug.cleanedOpenStateKeys = uniqueArray([...storyPhoneRuntimeDebug.cleanedOpenStateKeys, ...cleanedOpenState]);
+    storyPhoneRuntimeDebug.openStateCleared = true;
+    console.info(`${EXTENSION_ID}: UI state cleaned`, { reason, cleaned, cleanedOpenState });
     return cleaned;
+}
+
+function cleanStoryPhoneOpenState(reason = 'boot') {
+    const cleanedOpenState = [];
+    const keys = [];
+    try {
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const key = localStorage.key(i);
+            if (key) keys.push(key);
+        }
+    } catch (error) {
+        storyPhoneRuntimeDebug.storageReadable = false;
+        console.warn(`${EXTENSION_ID}: cannot enumerate storage`, error);
+    }
+    const isOpenStateStorageKey = (key) => (
+        STORYPHONE_OPEN_STATE_STORAGE_KEYS.includes(key)
+        || STORYPHONE_OPEN_STATE_KEY_PATTERNS.some((pattern) => pattern.test(key))
+        || /^st_story_phone:(old[-_]?layout|layout|modal|launcher).*open/i.test(key)
+    );
+    keys.forEach((key) => {
+        if (key === STORYPHONE_VERSION_KEY) return;
+        if (isOpenStateStorageKey(key) && safeStorageRemove(key)) cleanedOpenState.push(key);
+    });
+    keys.filter((key) => key.startsWith(`${STORAGE_PREFIX}:`)).forEach((key) => {
+        if (cleanedOpenState.includes(key)) return;
+        const state = safeStorageJson(key, null);
+        if (!state || typeof state !== 'object') return;
+        const removedFields = removeStoryPhoneOpenStateFields(state);
+        if (removedFields.length && safeStorageSet(key, JSON.stringify(state))) {
+            cleanedOpenState.push(...removedFields.map((field) => `${key}.${field}`));
+        }
+    });
+    storyPhoneRuntimeDebug.cleanedOpenStateKeys = uniqueArray([...storyPhoneRuntimeDebug.cleanedOpenStateKeys, ...cleanedOpenState]);
+    storyPhoneRuntimeDebug.cleanedKeys = uniqueArray([...storyPhoneRuntimeDebug.cleanedKeys, ...cleanedOpenState]);
+    storyPhoneRuntimeDebug.openStateCleared = true;
+    console.info(`${EXTENSION_ID}: open UI state cleaned`, { reason, cleanedOpenState });
+    return cleanedOpenState;
 }
 
 function migrateStoryPhoneStateIfNeeded() {
@@ -536,6 +676,7 @@ function migrateStoryPhoneStateIfNeeded() {
         storyPhoneRuntimeDebug.lastBootStep = 'migration';
         const storedVersion = safeStorageGet(STORYPHONE_VERSION_KEY, '');
         storyPhoneRuntimeDebug.storedVersion = storedVersion || null;
+        cleanStoryPhoneOpenState('boot default closed');
         if (storedVersion !== STORYPHONE_VERSION) {
             storyPhoneRuntimeDebug.migrationRan = true;
             cleanStoryPhoneUiState(storedVersion ? `version ${storedVersion} -> ${STORYPHONE_VERSION}` : 'legacy version');
@@ -575,7 +716,7 @@ class StorageManager {
         const key = this.getKey(scope);
         this.memory[key] = value;
         try {
-            const persisted = cloneValue(value);
+            const persisted = stripStoryPhoneOpenStateForSave(value);
             if (persisted?.settings) persisted.settings.apiKey = '';
             safeStorageSet(key, JSON.stringify(persisted));
         } catch {
@@ -945,7 +1086,6 @@ class SharedStoryState {
             settings: {
                 fallbackEnabled: false,
                 injectIntoMainContext: true,
-                minimized: false,
                 apiEndpoint: safeStorageGet('st_story_phone_api_endpoint', ''),
                 apiKey: '',
                 apiModel: safeStorageGet('st_story_phone_api_model', ''),
@@ -2345,6 +2485,8 @@ class PhoneUI {
         this.selectedNpc = null;
         this.root = null;
         this.screen = null;
+        this.isPhoneOpen = false;
+        this.hasUserOpenedPhone = false;
     }
 
     getWechatContacts(profile = this.state.value.profile) {
@@ -2372,10 +2514,10 @@ class PhoneUI {
     mount() {
         removeStoryPhoneDomDuplicates();
         document.getElementById('st-story-phone')?.remove();
-        this.root = createElement('section', 'stp-phone-shell', '');
+        this.root = createElement('section', 'stp-phone-shell stp-is-minimized', '');
         this.root.id = 'st-story-phone';
         this.root.innerHTML = `
-            <div class="stp-phone">
+            <div class="stp-phone st-storyphone-modal is-closed" id="st-storyphone-modal" aria-hidden="true">
                 <div class="stp-phone-top">
                     <span class="stp-signal">STORY 5G</span>
                     <span class="stp-camera"></span>
@@ -2389,24 +2531,23 @@ class PhoneUI {
         storyPhoneRuntimeDebug.rootMounted = true;
         storyPhoneRuntimeDebug.modalMounted = true;
         this.screen = this.root.querySelector('.stp-screen');
-        shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.toggleMinimized(true));
+        shieldStoryPhonePointer(this.root.querySelector('.stp-mini'), () => this.closePhone());
         this.root.querySelector('.stp-bubble').addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation?.();
             if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
-            this.toggleMinimized(false);
+            this.openPhone();
         }, true);
         this.root.querySelector('.stp-bubble').addEventListener('pointerdown', (event) => {
             if (this.root.querySelector('.stp-bubble')?.dataset.stpSuppressOpen) return;
             event.preventDefault();
             event.stopPropagation();
-            this.toggleMinimized(false);
+            this.openPhone();
         }, true);
         this.bindDrag();
         this.bindEvents();
-        this.toggleMinimized(Boolean(this.state.value.settings.minimized));
-        this.render();
+        this.closePhone({ skipSave: true });
     }
 
     bindDrag() {
@@ -2491,21 +2632,44 @@ class PhoneUI {
         const refresh = () => {
             const collected = this.collector.collect();
             this.profileManager.resolve(collected);
-            this.render();
+            if (this.isPhoneOpen) this.render();
         };
         [types.CHAT_CHANGED, types.MESSAGE_RECEIVED, types.MESSAGE_SENT, types.PERSONA_CHANGED, types.CHARACTER_EDITED]
             .filter(Boolean)
             .forEach((type) => events.on(type, refresh));
     }
 
+    openPhone() {
+        if (!this.root) return;
+        const modal = this.root.querySelector('.st-storyphone-modal');
+        this.isPhoneOpen = true;
+        this.hasUserOpenedPhone = true;
+        this.root.classList.remove('stp-is-minimized');
+        this.root.classList.add('stp-is-open');
+        modal?.classList.add('is-open');
+        modal?.classList.remove('is-closed');
+        modal?.setAttribute('aria-hidden', 'false');
+        this.render();
+    }
+
+    closePhone() {
+        if (!this.root) return;
+        const modal = this.root.querySelector('.st-storyphone-modal');
+        this.isPhoneOpen = false;
+        this.root.classList.add('stp-is-minimized');
+        this.root.classList.remove('stp-is-open');
+        modal?.classList.add('is-closed');
+        modal?.classList.remove('is-open');
+        modal?.setAttribute('aria-hidden', 'true');
+    }
+
     toggleMinimized(minimized) {
-        this.state.value.settings.minimized = minimized;
-        this.state.save();
-        this.root.classList.toggle('stp-is-minimized', minimized);
+        if (minimized) this.closePhone();
+        else this.openPhone();
     }
 
     render() {
-        if (!this.screen) return;
+        if (!this.screen || !this.isPhoneOpen) return;
         const collected = this.collector.collect();
         const profile = this.profileManager.resolve(collected);
         this.root.style.setProperty('--stp-owner', `"${profile.displayName || 'StoryPhone'}"`);
@@ -4229,6 +4393,21 @@ class StoryPhoneApp {
 }
 
 function bootSelfCheck() {
+    const appUi = globalThis.__STStoryPhoneApp?.ui;
+    const modal = document.querySelector('#st-story-phone .st-storyphone-modal, #st-story-phone .stp-phone');
+    const launcher = document.querySelector('#st-story-phone .stp-bubble, #st-story-phone-boot-bubble');
+    const modalStyles = modal ? window.getComputedStyle(modal) : null;
+    const modalRect = modal?.getBoundingClientRect?.();
+    let modalVisibleOnBoot = Boolean(modal && modalStyles?.display !== 'none' && modalStyles?.visibility !== 'hidden' && modalRect?.width && modalRect?.height);
+    if (modalVisibleOnBoot && appUi && !appUi.hasUserOpenedPhone) {
+        appUi.closePhone();
+        const warning = 'StoryPhone modal was visible on boot and has been force-closed.';
+        storyPhoneRuntimeDebug.bootWarnings.push(warning);
+        console.warn(warning);
+        const closedStyles = window.getComputedStyle(modal);
+        const closedRect = modal.getBoundingClientRect();
+        modalVisibleOnBoot = Boolean(closedStyles.display !== 'none' && closedStyles.visibility !== 'hidden' && closedRect.width && closedRect.height);
+    }
     const viewport = {
         width: window.innerWidth,
         height: window.innerHeight,
@@ -4240,21 +4419,31 @@ function bootSelfCheck() {
         storedVersion: storyPhoneRuntimeDebug.storedVersion,
         migrationRan: storyPhoneRuntimeDebug.migrationRan,
         cleanedKeys: storyPhoneRuntimeDebug.cleanedKeys,
+        cleanedOpenStateKeys: storyPhoneRuntimeDebug.cleanedOpenStateKeys,
+        openStateCleared: storyPhoneRuntimeDebug.openStateCleared,
         storageReadable: storyPhoneRuntimeDebug.storageReadable,
         profileLoaded: storyPhoneRuntimeDebug.profileLoaded,
-        launcherMounted: Boolean(document.getElementById('st-story-phone-boot-bubble') || document.querySelector('#st-story-phone .stp-bubble')),
+        isPhoneOpenOnBoot: Boolean(appUi?.isPhoneOpen),
+        modalVisibleOnBoot,
+        modalDisplay: modal ? window.getComputedStyle(modal).display : null,
+        modalClassName: modal?.className || null,
+        launcherMounted: Boolean(launcher),
         rootMounted: Boolean(document.getElementById('st-story-phone')),
-        modalMounted: Boolean(document.querySelector('#st-story-phone .stp-phone')),
+        modalMounted: Boolean(modal),
+        activeView: appUi?.activeApp || null,
         duplicateNodesRemoved: storyPhoneRuntimeDebug.duplicateNodesRemoved,
         isMobileViewport: window.innerWidth <= 768 || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
         viewport,
+        bootWarnings: storyPhoneRuntimeDebug.bootWarnings,
         lastBootError: storyPhoneRuntimeDebug.lastBootError,
     };
 }
 
 function forceResetStoryPhoneUiState() {
+    globalThis.__STStoryPhoneApp?.ui?.closePhone?.();
     cleanStoryPhoneUiState('force reset');
     removeStoryPhoneDomDuplicates();
+    document.getElementById('st-storyphone-modal')?.remove();
     document.getElementById('st-story-phone')?.remove();
     document.getElementById('st-story-phone-boot-error')?.remove();
     globalThis.__STStoryPhoneApp = null;
@@ -4308,6 +4497,7 @@ function bootStoryPhone() {
         globalThis.__STStoryPhoneApp = new StoryPhoneApp();
         globalThis.__STStoryPhoneApp.start();
         document.getElementById('st-story-phone-boot-bubble')?.remove();
+        bootSelfCheck();
         storyPhoneRuntimeDebug.lastBootStep = 'ready';
     } catch (error) {
         globalThis.__STStoryPhoneApp = null;

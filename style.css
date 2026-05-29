@@ -932,6 +932,17 @@
     overflow: hidden;
 }
 
+.st-storyphone-modal.is-closed {
+    display: none;
+    pointer-events: none;
+}
+
+.st-storyphone-modal.is-open {
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+}
+
 .stp-phone-top {
     height: 42px;
     display: grid;
@@ -1011,10 +1022,12 @@
 
 .stp-is-minimized .stp-phone {
     display: none;
+    pointer-events: none;
 }
 
 .stp-is-minimized .stp-bubble {
     display: block;
+    pointer-events: auto;
 }
 
 .stp-home-hero {
@@ -1986,6 +1999,17 @@
 #st-story-phone.stp-phone-shell {
     position: fixed !important;
     z-index: 2147483646 !important;
+}
+
+#st-story-phone .st-storyphone-modal.is-closed {
+    display: none !important;
+    pointer-events: none !important;
+}
+
+#st-story-phone .st-storyphone-modal.is-open {
+    display: flex !important;
+    flex-direction: column !important;
+    pointer-events: auto !important;
 }
 
 #st-story-phone.stp-phone-shell:not(.stp-is-minimized) {
